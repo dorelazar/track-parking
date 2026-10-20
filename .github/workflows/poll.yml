@@ -1,0 +1,49 @@
+name: Check Assuta
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"   # GitHub may run these a few minutes late
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: poll
+  cancel-in-progress: false
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get the data branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          REPO_URL="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if git ls-remote --exit-code --heads "$REPO_URL" data >/dev/null; then
+            git clone --quiet --depth 1 --branch data "$REPO_URL" data-branch
+          else
+            mkdir data-branch
+            git -C data-branch init --quiet -b data
+            git -C data-branch remote add origin "$REPO_URL"
+          fi
+
+      - name: Check Assuta
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          PAGE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
+        run: python3 poll.py --data data-branch
+
+      - name: Save
+        run: |
+          cd data-branch
+          git config user.name "assuta-logger"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit --quiet -m "Assuta check $(TZ=Asia/Jerusalem date +%Y-%m-%dT%H:%M)"
+          git push --quiet origin data

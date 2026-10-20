@@ -1,0 +1,582 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Assuta Parking</title>
+<meta name="theme-color" content="#1b4fa0">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon.svg">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Assistant:wght@400;600;700&family=IBM+Plex+Mono:wght@500&family=Secular+One&display=swap">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+/* Layout: one phone-width column; status first, then tonight, pattern, plan B, cruise loop.
+   Visual language: Tel Aviv curb paint (blue-white) and municipal sign blue. */
+:root {
+  --bg: #f2f4f8; --surface: #ffffff; --ink: #0f1b2d; --muted: #5a6678; --line: #d8dde6;
+  --sign: #1b4fa0; --sign-ink: #ffffff; --curb: #ffffff;
+  --free: #12804a; --few: #a86200; --full: #c62828; --closed: #6b7280;
+  --free-bg: #e3f4ea; --few-bg: #fbefd9; --full-bg: #fbe4e2; --closed-bg: #eceef1;
+  --font-display: "Secular One", "Assistant", system-ui, sans-serif;
+  --font-body: "Assistant", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-data: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b111d; --surface: #131b2a; --ink: #e7ecf4; --muted: #93a0b3; --line: #253047;
+    --sign: #6f9cf0; --sign-ink: #0b111d; --curb: #e7ecf4;
+    --free: #45c486; --few: #f0a53c; --full: #ff6f62; --closed: #9aa3b0;
+    --free-bg: #12301f; --few-bg: #35270f; --full-bg: #3a1716; --closed-bg: #1f2633;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--ink); font: 16px/1.45 var(--font-body);
+  padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.wrap {
+  max-width: 560px; margin: 0 auto; display: grid; gap: 14px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 0 32px;
+}
+header { padding-block: 18px 0; }
+header h1 { font: 28px/1.1 var(--font-display); margin: 0; letter-spacing: .2px; }
+header .sub { color: var(--muted); font-size: 14px; margin-top: 4px; }
+.curb { height: 7px; border-radius: 2px; margin-top: 12px;
+  background: repeating-linear-gradient(90deg, var(--sign) 0 26px, var(--curb) 26px 52px);
+  box-shadow: inset 0 0 0 1px var(--line); }
+section { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px; display: grid; gap: 10px; min-width: 0; }
+h2 { font: 13px/1.2 var(--font-body); font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0; }
+.muted { color: var(--muted); }
+.small { font-size: 14px; }
+.mono { font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+.note { font-size: 14px; color: var(--muted); margin: 0; }
+.warn { font-size: 14px; border-radius: 10px; padding: 8px 10px; background: var(--few-bg); color: var(--ink); margin: 0; }
+
+/* status hero */
+.hero { gap: 12px; }
+.statusline { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.pill { display: inline-flex; align-items: baseline; gap: 10px; padding: 8px 16px; border-radius: 999px; font: 30px/1.1 var(--font-display); }
+.pill .he { font-size: 20px; opacity: .85; }
+.s-free { background: var(--free-bg); color: var(--free); }
+.s-few { background: var(--few-bg); color: var(--few); }
+.s-full { background: var(--full-bg); color: var(--full); }
+.s-closed, .s-unknown { background: var(--closed-bg); color: var(--closed); }
+.facts { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 14px; color: var(--muted); }
+.btns { display: flex; flex-wrap: wrap; gap: 8px; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; padding: 0 16px; border-radius: 10px; font: 600 15px var(--font-body); text-decoration: none; border: 1px solid var(--line); color: var(--ink); background: var(--surface); cursor: pointer; }
+.btn.primary { background: var(--sign); color: var(--sign-ink); border-color: var(--sign); }
+.btn:focus-visible, a:focus-visible { outline: 3px solid var(--sign); outline-offset: 2px; }
+
+/* tonight */
+.big-time { font: 40px/1 var(--font-display); }
+.tonight-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.tonight-grid div { display: grid; gap: 2px; }
+.tonight-grid .k { font-size: 13px; color: var(--muted); }
+.tonight-grid .v { font: 22px/1.1 var(--font-data); font-variant-numeric: tabular-nums; }
+.tonight-grid .v.key { color: var(--sign); }
+
+/* charts */
+.chart { overflow-x: auto; }
+svg text { font-family: var(--font-data); font-size: 11px; fill: var(--muted); }
+svg .grid { stroke: var(--line); stroke-width: 1; }
+svg .range { stroke: var(--sign); stroke-opacity: .28; stroke-width: 8; stroke-linecap: round; }
+svg .dot { fill: var(--full); }
+svg .fewtick { fill: none; stroke: var(--few); stroke-width: 2; }
+svg .today-row { fill: var(--sign); fill-opacity: .08; }
+svg .day { font-family: var(--font-body); font-size: 13px; fill: var(--ink); }
+svg .day.today { font-weight: 700; fill: var(--sign); }
+svg .nodata { font-family: var(--font-body); font-size: 12px; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; color: var(--muted); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
+.strip { display: flex; height: 18px; border-radius: 4px; overflow: hidden; background: var(--closed-bg); }
+.strip span { display: block; height: 100%; }
+.strip-axis { display: flex; justify-content: space-between; font: 11px var(--font-data); color: var(--muted); }
+
+/* plan B */
+.lots { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.lot { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; align-items: center; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; }
+.lot .name { font-weight: 700; }
+.lot .meta { font-size: 13px; color: var(--muted); grid-column: 1; }
+.lot .chip { font: 600 13px var(--font-body); padding: 3px 10px; border-radius: 999px; grid-row: 1; grid-column: 2; justify-self: end; }
+.lot .go { grid-column: 2; justify-self: end; font-size: 14px; font-weight: 600; color: var(--sign); text-decoration: none; }
+
+/* map */
+#map { height: 300px; border-radius: 10px; border: 1px solid var(--line); z-index: 0; }
+.leaflet-container { font: 13px var(--font-body); background: var(--closed-bg); }
+.num-marker { background: var(--sign); color: var(--sign-ink); border-radius: 50%; width: 24px !important; height: 24px !important; display: grid; place-items: center; font: 600 13px var(--font-data); border: 2px solid var(--surface); }
+.lot-marker { width: 16px !important; height: 16px !important; border-radius: 4px; border: 2px solid var(--surface); }
+
+footer { font-size: 13px; color: var(--muted); display: grid; gap: 4px; padding-inline: 2px; }
+footer a { color: inherit; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Assuta Parking</h1>
+    <div class="sub">חניון אסותא · Jabotinsky 62 · Ahuzot HaHof</div>
+    <div class="curb" aria-hidden="true"></div>
+  </header>
+
+  <p class="warn" id="demo-banner" hidden>Sample data. This shows how the page looks once a few weeks of checks exist.</p>
+
+  <section class="hero" aria-live="polite">
+    <h2>Right now</h2>
+    <div class="statusline">
+      <span class="pill s-unknown" id="pill">Loading<span class="he"></span></span>
+    </div>
+    <div class="facts" id="facts"></div>
+    <p class="warn" id="stale" hidden></p>
+    <div class="btns">
+      <a class="btn primary" id="waze" href="#" target="_blank" rel="noopener">Drive there in Waze</a>
+      <a class="btn" id="gmaps" href="#" target="_blank" rel="noopener">Google Maps</a>
+      <button class="btn" id="refresh" type="button">Refresh</button>
+    </div>
+  </section>
+
+  <section id="tonight">
+    <h2 id="tonight-title">Tonight</h2>
+    <div id="tonight-body"><p class="note">Loading the history…</p></div>
+  </section>
+
+  <section>
+    <h2>Last 24 hours</h2>
+    <div class="strip" id="strip" role="img" aria-label="Assuta status over the last 24 hours"></div>
+    <div class="strip-axis" id="strip-axis"></div>
+    <div class="legend"><span><i style="background:var(--free)"></i>Room</span><span><i style="background:var(--few)"></i>Few spaces</span><span><i style="background:var(--full)"></i>Full</span><span><i style="background:var(--closed-bg);box-shadow:inset 0 0 0 1px var(--line)"></i>No data</span></div>
+  </section>
+
+  <section>
+    <h2>When it fills, by day</h2>
+    <div class="chart" id="week"></div>
+    <div class="legend"><span><i style="background:var(--full)"></i>Usually full</span><span><i style="border:2px solid var(--few);width:10px;height:10px"></i>Few spaces from</span><span><i style="background:var(--sign);opacity:.35"></i>Earliest to latest</span></div>
+  </section>
+
+  <section>
+    <h2>Plan B · within a 5-minute walk</h2>
+    <ul class="lots" id="planb"><li class="note">Loading nearby lots…</li></ul>
+  </section>
+
+  <section>
+    <h2>Street loop</h2>
+    <p class="note">Three short stops on the side streets around Assuta, ending at the best lot with room. Highlighted streets are the ones worth scanning for a curb spot.</p>
+    <div id="map" role="img" aria-label="Map of the street loop around Assuta"></div>
+    <div class="btns">
+      <a class="btn primary" id="loop" href="#" target="_blank" rel="noopener">Start loop in Google Maps</a>
+    </div>
+    <p class="note" id="loop-note"></p>
+  </section>
+
+  <section>
+    <h2>Rent a spot nearby</h2>
+    <p class="note">Private spots for monthly rent near Assuta. These open searches; listings change daily.</p>
+    <div class="btns">
+      <a class="btn" target="_blank" rel="noopener" href="https://www.google.com/search?q=%D7%97%D7%A0%D7%99%D7%94+%D7%9C%D7%94%D7%A9%D7%9B%D7%A8%D7%94+%D7%96%27%D7%91%D7%95%D7%98%D7%99%D7%A0%D7%A1%D7%A7%D7%99+%D7%AA%D7%9C+%D7%90%D7%91%D7%99%D7%91+site%3Ayad2.co.il">Yad2 listings</a>
+      <a class="btn" target="_blank" rel="noopener" href="https://www.google.com/search?q=%D7%97%D7%A0%D7%99%D7%94+%D7%9C%D7%94%D7%A9%D7%9B%D7%A8%D7%94+%D7%94%D7%A6%D7%A4%D7%95%D7%9F+%D7%94%D7%99%D7%A9%D7%9F+%D7%AA%D7%9C+%D7%90%D7%91%D7%99%D7%91">Old North, any site</a>
+    </div>
+  </section>
+
+  <footer>
+    <div id="logger-health"></div>
+    <div>Live status: <a href="https://gisn.tel-aviv.gov.il/arcgis/rest/services/IView2/MapServer/970" target="_blank" rel="noopener">Tel Aviv GIS, Ahuzot HaHof lots</a>. Street data © OpenStreetMap contributors.</div>
+  </footer>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+"use strict";
+// ---------------------------------------------------------------- settings
+// Keep the analysis numbers in sync with poll.py.
+const LOT_CODE = 122, LOT_NAME = "אסותא";
+const EVENING_START_H = 15, EVENING_END_H = 4, STALE_MIN = 90, FRESH_SRC_MIN = 20,
+      MAX_GAP_MIN = 45, MIN_CHECKS_FOR_NO_FILL = 40, LEAD_MIN = 25, WEEKS_BACK = 8;
+const PLANB_RADIUS_M = 450, WALK_M_PER_MIN = 80, DETOUR = 1.3;
+const LOOP_RADIUS_M = 210;
+const FEED_URL = "https://gisn.tel-aviv.gov.il/arcgis/rest/services/IView2/MapServer/970/query" +
+  "?where=1%3D1&outFields=code_achoza,shem_chenyon,ktovet,lat,lon,status_chenyon,tr_status_chenyon," +
+  "mispar_mekomot_bchenyon,hearot_taarif&returnGeometry=false&f=json";
+const OVERPASS_URL = "https://overpass-api.de/api/interpreter";
+
+const DEMO = new URLSearchParams(location.search).has("demo");
+function logUrl() {
+  if (DEMO) return "demo/assuta.csv";
+  const m = /^([^.]+)\.github\.io$/.exec(location.hostname);
+  const repo = location.pathname.split("/").filter(Boolean)[0];
+  if (m && repo) return "https://raw.githubusercontent.com/" + m[1] + "/" + repo + "/data/assuta.csv";
+  return "data/assuta.csv"; // local testing
+}
+
+const STATUS = {
+  "פנוי": { cls: "s-free", en: "Room", color: "var(--free)" },
+  "מעט": { cls: "s-few", en: "Few spaces", color: "var(--few)" },
+  "מלא": { cls: "s-full", en: "Full", color: "var(--full)" },
+  "סגור": { cls: "s-closed", en: "Closed", color: "var(--closed)" },
+};
+const UNKNOWN = { cls: "s-unknown", en: "No data", color: "var(--closed-bg)" };
+const st = (s) => STATUS[s] || UNKNOWN;
+const $ = (id) => document.getElementById(id);
+
+// ---------------------------------------------------------------- time
+// Every time on this page is Israel wall-clock time stored as if it were UTC
+// (that is how the city feed encodes tr_status_chenyon), so we never mix zones.
+const ilFmt = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Jerusalem", year: "numeric",
+  month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+function ilNow() {
+  const p = {}; ilFmt.formatToParts(new Date()).forEach((x) => (p[x.type] = x.value));
+  return Date.UTC(+p.year, +p.month - 1, +p.day, p.hour === "24" ? 0 : +p.hour, +p.minute, +p.second);
+}
+const MIN = 60000, DAY = 86400000;
+function parseT(s) {
+  const m = /^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d)/.exec(s || "");
+  return m ? Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]) : null;
+}
+const hourOf = (t) => new Date(t).getUTCHours();
+const dayStart = (t) => t - (t % DAY);
+function hhmmAbs(t) { const d = new Date(t); return pad(d.getUTCHours()) + ":" + pad(d.getUTCMinutes()); }
+function hhmm(minAfterNoon) { const m = ((minAfterNoon + 720) % 1440 + 1440) % 1440; return pad(Math.floor(m / 60)) + ":" + pad(m % 60); }
+const pad = (n) => String(n).padStart(2, "0");
+function ago(ms) {
+  const m = Math.round(ms / MIN);
+  if (m < 1) return "just now";
+  if (m < 60) return m + " min ago";
+  if (m < 48 * 60) return Math.round(m / 60) + " h ago";
+  return Math.round(m / 1440) + " days ago";
+}
+const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+// ---------------------------------------------------------------- analysis (mirror of poll.py)
+function parseCsv(text) {
+  const lines = text.trim().split(/\r?\n/); const head = lines.shift().split(",");
+  return lines.map((l) => { const v = l.split(","); const o = {}; head.forEach((h, i) => (o[h] = v[i] || "")); return o; });
+}
+function effective(row) {
+  const checked = parseT(row.checked_at), src = parseT(row.source_time);
+  let s = STATUS[row.status] ? row.status : "unknown";
+  if (checked == null) return null;
+  if (src != null) {
+    const age = (checked - src) / MIN;
+    if (age > STALE_MIN) s = "unknown";
+    else if (age >= 0 && age <= FRESH_SRC_MIN) return { t: src, s };
+  }
+  return { t: checked, s };
+}
+function eveningOf(t) {
+  const h = hourOf(t);
+  if (h >= EVENING_START_H) return dayStart(t);
+  if (h < EVENING_END_H) return dayStart(t) - DAY;
+  return null;
+}
+const minAfterNoon = (t, ev) => Math.floor((t - ev - 12 * 60 * MIN) / MIN);
+function evenings(rows) {
+  const by = new Map();
+  for (const r of rows) {
+    const e = effective(r); if (!e || e.s === "unknown") continue;
+    const ev = eveningOf(e.t); if (ev == null) continue;
+    if (!by.has(ev)) by.set(ev, []); by.get(ev).push(e);
+  }
+  const out = new Map();
+  for (const [ev, pts] of by) {
+    pts.sort((a, b) => a.t - b.t);
+    const start = ev + EVENING_START_H * 60 * MIN;
+    const res = { checks: pts.length, few: null, full: null };
+    for (const [key, hit] of [["few", ["מעט", "מלא"]], ["full", ["מלא"]]]) {
+      let prev = start - 30 * MIN;
+      for (const p of pts) {
+        if (hit.includes(p.s)) { res[key] = (p.t - prev) <= MAX_GAP_MIN * MIN ? minAfterNoon(p.t, ev) : "gap"; break; }
+        prev = p.t;
+      }
+    }
+    res.filled = Number.isInteger(res.full);
+    res.usable = res.filled || (res.full === null && pts.length >= MIN_CHECKS_FOR_NO_FILL);
+    out.set(ev, res);
+  }
+  return out;
+}
+const median = (a) => { const s = [...a].sort((x, y) => x - y), n = s.length; return n % 2 ? s[(n - 1) / 2] : Math.floor((s[n / 2 - 1] + s[n / 2]) / 2); };
+function predict(evs, weekday /* Sun=0 */, today) {
+  const since = today - WEEKS_BACK * 7 * DAY;
+  let same = [...evs].filter(([d, r]) => new Date(d).getUTCDay() === weekday && d >= since && d < today && r.usable);
+  let scope = "weekday";
+  if (same.filter(([, r]) => r.filled).length < 2) {
+    same = [...evs].filter(([d, r]) => d >= today - 21 * DAY && d < today && r.usable);
+    scope = "all";
+  }
+  const fulls = same.filter(([, r]) => r.filled).map(([, r]) => r.full);
+  if (fulls.length < 2) return null;
+  const fews = same.map(([, r]) => r.few).filter(Number.isInteger);
+  const med = median(fulls);
+  return { scope, fullMedian: med, fullEarliest: Math.min(...fulls), fullLatest: Math.max(...fulls),
+    fewMedian: fews.length ? median(fews) : null, filled: fulls.length, evenings: same.length, arriveBy: med - LEAD_MIN };
+}
+
+// ---------------------------------------------------------------- data
+async function getJson(url, opts) {
+  const ctl = new AbortController(); const timer = setTimeout(() => ctl.abort(), 25000);
+  try { const r = await fetch(url, { cache: "no-store", signal: ctl.signal, ...opts }); if (!r.ok) throw new Error("HTTP " + r.status); return await r.json(); }
+  finally { clearTimeout(timer); }
+}
+async function loadLots() {
+  const json = DEMO ? await getJson("demo/lots.json") : await getJson(FEED_URL);
+  if (json.error) throw new Error(json.error.message || "feed error");
+  if (DEMO) json.features.forEach((f) => (f.attributes.tr_status_chenyon = ilNow() - 3 * MIN));
+  return (json.features || []).map((f) => {
+    const a = f.attributes || {};
+    return { code: a.code_achoza, name: a.shem_chenyon || "", address: a.ktovet || "", lat: +a.lat, lon: +a.lon,
+      status: a.status_chenyon, updatedAt: a.tr_status_chenyon, capacity: a.mispar_mekomot_bchenyon, notes: a.hearot_taarif || "" };
+  }).filter((l) => isFinite(l.lat) && isFinite(l.lon));
+}
+async function loadLog() {
+  const r = await fetch(logUrl() + (DEMO ? "" : "?t=" + Math.floor(Date.now() / 300000)), { cache: "no-store" });
+  if (r.status === 404) return [];
+  if (!r.ok) throw new Error("HTTP " + r.status);
+  const rows = parseCsv(await r.text());
+  if (DEMO && rows.length) { // slide the sample so it ends now
+    const shift = ilNow() - parseT(rows[rows.length - 1].checked_at) - 5 * MIN;
+    const f = (s) => { const t = parseT(s); if (t == null) return ""; const d = new Date(t + shift - (t + shift) % MIN); return d.toISOString().slice(0, 16); };
+    rows.forEach((r) => { r.checked_at = f(r.checked_at); r.source_time = f(r.source_time); });
+  }
+  return rows;
+}
+
+// ---------------------------------------------------------------- geo
+function distM(a, b) {
+  const R = 6371000, toR = Math.PI / 180, dLat = (b.lat - a.lat) * toR, dLon = (b.lon - a.lon) * toR;
+  const x = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * toR) * Math.cos(b.lat * toR) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(x));
+}
+function offset(p, bearingDeg, m) {
+  const R = 6371000, b = bearingDeg * Math.PI / 180;
+  return { lat: p.lat + (m * Math.cos(b)) / R * 180 / Math.PI,
+           lon: p.lon + (m * Math.sin(b)) / (R * Math.cos(p.lat * Math.PI / 180)) * 180 / Math.PI };
+}
+const bearing = (a, b) => (Math.atan2((b.lon - a.lon) * Math.cos(a.lat * Math.PI / 180), b.lat - a.lat) * 180 / Math.PI + 360) % 360;
+const ll = (p) => p.lat.toFixed(6) + "," + p.lon.toFixed(6);
+const wazeUrl = (p) => "https://waze.com/ul?ll=" + ll(p) + "&navigate=yes";
+const gmapsUrl = (p) => "https://www.google.com/maps/dir/?api=1&destination=" + ll(p) + "&travelmode=driving";
+
+// ---------------------------------------------------------------- render
+let state = { lots: [], rows: [], assuta: null, map: null, layers: null, streets: null };
+
+function renderStatus() {
+  const a = state.assuta, now = ilNow();
+  const pill = $("pill"), facts = $("facts"), stale = $("stale");
+  if (!a) {
+    pill.className = "pill s-unknown"; pill.innerHTML = "No live data";
+    facts.textContent = "The city feed didn't answer. Try Refresh.";
+    stale.hidden = true; return;
+  }
+  const s = st(a.status);
+  pill.className = "pill " + s.cls;
+  pill.innerHTML = ""; pill.append(s.en);
+  const he = document.createElement("span"); he.className = "he"; he.textContent = a.status || ""; pill.append(he);
+  const age = a.updatedAt ? now - a.updatedAt : null;
+  facts.innerHTML = "";
+  const items = [
+    age != null ? "Feed updated " + ago(age) + " (" + hhmmAbs(a.updatedAt) + ")" : "Feed has no timestamp",
+    (a.capacity || 100) + " spaces",
+  ];
+  const disc = /(\d+)\s*%/.exec(a.notes); if (disc && a.notes.includes("הנח")) items.push(disc[1] + "% off for residents");
+  for (const t of items) { const sp = document.createElement("span"); sp.textContent = t; facts.append(sp); }
+  if (age != null && age > STALE_MIN * MIN) {
+    stale.hidden = false;
+    stale.textContent = "This status is " + ago(age).replace(" ago", "") + " old, so Assuta's sensor may be offline. Treat it as unknown and check Plan B.";
+  } else stale.hidden = true;
+  $("waze").href = wazeUrl(a); $("gmaps").href = gmapsUrl(a);
+}
+
+function renderTonight() {
+  const now = ilNow();
+  let ev = eveningOf(now);
+  if (ev == null) ev = dayStart(now); // daytime: talk about this evening
+  const wd = new Date(ev).getUTCDay();
+  const evs = evenings(state.rows);
+  const p = predict(evs, wd, ev);
+  $("tonight-title").textContent = (hourOf(now) < EVENING_END_H ? "Tonight" : "This evening") + " · " + DAYS[wd];
+  const body = $("tonight-body"); body.innerHTML = "";
+  if (!p) {
+    const usable = [...evs.values()].filter((r) => r.usable).length;
+    const first = state.rows.length ? state.rows[0].checked_at.slice(0, 10) : null;
+    body.innerHTML = '<p class="note"></p>';
+    body.firstChild.textContent = first
+      ? "Still learning. Checks started " + first + " and " + usable + " full evening" + (usable === 1 ? " has" : "s have") +
+        " been recorded so far. A prediction appears after two evenings where Assuta filled up."
+      : "No history yet. The checker saves Assuta's status every 10 minutes; a prediction appears after a couple of evenings.";
+    return;
+  }
+  const grid = document.createElement("div"); grid.className = "tonight-grid";
+  const cell = (k, v, key) => { const d = document.createElement("div"); d.innerHTML = '<span class="k"></span><span class="v' + (key ? " key" : "") + '"></span>'; d.children[0].textContent = k; d.children[1].textContent = v; return d; };
+  grid.append(cell("Park by", hhmm(p.arriveBy), true), cell("Few spaces", p.fewMedian != null ? "~" + hhmm(p.fewMedian) : "–"), cell("Usually full", "~" + hhmm(p.fullMedian)));
+  body.append(grid);
+  const n = document.createElement("p"); n.className = "note";
+  n.textContent = (p.scope === "weekday" ? "Based on " + p.filled + " of " + p.evenings + " recent " + DAYS[wd] + "s that filled" : "Not enough " + DAYS[wd] + "s yet, so this uses the last three weeks: " + p.filled + " of " + p.evenings + " evenings filled") +
+    ". Earliest it filled: " + hhmm(p.fullEarliest) + ".";
+  body.append(n);
+  const cur = state.assuta && state.assuta.status;
+  if (cur !== "מלא") {
+    const mins = minAfterNoon(now, ev);
+    if (mins >= 0 && mins < p.arriveBy + 60) {
+      const left = p.arriveBy - mins;
+      const go = document.createElement("p"); go.className = left <= 20 ? "warn" : "note";
+      go.textContent = left > 0 ? "You have about " + fmtDur(left) + " before you should be parked." : "You're past the usual park-by time. Go now if it still shows room.";
+      body.append(go);
+    }
+  }
+}
+const fmtDur = (m) => (m >= 60 ? Math.floor(m / 60) + " h " : "") + (m % 60) + " min";
+
+function renderStrip() {
+  const now = ilNow(), from = now - DAY, strip = $("strip"); strip.innerHTML = "";
+  const pts = state.rows.map(effective).filter((e) => e && e.t >= from - 30 * MIN).sort((a, b) => a.t - b.t);
+  const segs = []; let cursor = from;
+  pts.forEach((p, i) => {
+    const start = Math.max(p.t, from); const next = i + 1 < pts.length ? pts[i + 1].t : now;
+    const end = Math.min(next, p.t + 30 * MIN, now);
+    if (start > cursor) segs.push([cursor, start, "unknown"]);
+    if (end > start) segs.push([start, end, p.s]);
+    cursor = Math.max(cursor, end);
+  });
+  if (cursor < now) segs.push([cursor, now, "unknown"]);
+  for (const [a, b, s] of segs) { const sp = document.createElement("span"); sp.style.flex = String(b - a); sp.style.background = st(s).color; strip.append(sp); }
+  const axis = $("strip-axis"); axis.innerHTML = "";
+  for (let i = 0; i <= 4; i++) { const sp = document.createElement("span"); sp.textContent = i === 4 ? "now" : hhmmAbs(from + i * DAY / 4); axis.append(sp); }
+}
+
+function renderWeek() {
+  const evs = evenings(state.rows), now = ilNow(), today = dayStart(now) + DAY;
+  const tonightWd = new Date(eveningOf(now) ?? dayStart(now)).getUTCDay();
+  const X0 = 240, X1 = 840; // 16:00 .. 02:00 in minutes after noon
+  const W = 360, L = 40, R = 46, rowH = 28, top = 8, H = top + rowH * 7 + 22;
+  const x = (m) => L + (Math.min(Math.max(m, X0), X1) - X0) / (X1 - X0) * (W - L - R);
+  let s = '<svg viewBox="0 0 ' + W + " " + H + '" width="100%" role="img" aria-label="Usual fill time by day of week">';
+  for (let m = X0; m <= X1; m += 120) s += '<line class="grid" x1="' + x(m) + '" x2="' + x(m) + '" y1="' + top + '" y2="' + (top + rowH * 7) + '"/><text x="' + x(m) + '" y="' + (H - 6) + '" text-anchor="middle">' + hhmm(m) + "</text>";
+  for (let wd = 0; wd < 7; wd++) {
+    const y = top + wd * rowH + rowH / 2, p = predict(evs, wd, today);
+    const isToday = wd === tonightWd;
+    if (isToday) s += '<rect class="today-row" x="0" y="' + (y - rowH / 2) + '" width="' + W + '" height="' + rowH + '" rx="6"/>';
+    s += '<text class="day' + (isToday ? " today" : "") + '" x="8" y="' + (y + 4) + '">' + DAYS[wd].slice(0, 3) + "</text>";
+    if (p && p.scope === "weekday") {
+      s += '<line class="range" x1="' + x(p.fullEarliest) + '" x2="' + x(p.fullLatest) + '" y1="' + y + '" y2="' + y + '"/>';
+      if (p.fewMedian != null) s += '<circle class="fewtick" cx="' + x(p.fewMedian) + '" cy="' + y + '" r="5"/>';
+      s += '<circle class="dot" cx="' + x(p.fullMedian) + '" cy="' + y + '" r="6"/>';
+      s += '<text x="' + (W - 4) + '" y="' + (y + 4) + '" text-anchor="end">' + hhmm(p.fullMedian) + "</text>";
+    } else {
+      s += '<text class="nodata" x="' + x(X0) + '" y="' + (y + 4) + '" dx="6">not enough ' + DAYS[wd].slice(0, 3) + "s yet</text>";
+    }
+  }
+  $("week").innerHTML = s + "</svg>";
+}
+
+function renderPlanB() {
+  const a = state.assuta, list = $("planb"); list.innerHTML = "";
+  if (!a) { list.innerHTML = '<li class="note">Needs the live feed. Try Refresh.</li>'; return; }
+  let near = state.lots.filter((l) => l !== a).map((l) => ({ ...l, d: distM(a, l) })).sort((x, y) => x.d - y.d);
+  const within = near.filter((l) => l.d <= PLANB_RADIUS_M);
+  const shown = (within.length ? within : near.slice(0, 3)).slice(0, 5);
+  if (!within.length) { const li = document.createElement("li"); li.className = "note"; li.textContent = "No other Ahuzot lot within a 5-minute walk; these are the closest."; list.append(li); }
+  for (const l of shown) {
+    const li = document.createElement("li"); li.className = "lot";
+    const s = st(l.status), walk = Math.max(1, Math.round(l.d * DETOUR / WALK_M_PER_MIN));
+    const fresh = l.updatedAt && ilNow() - l.updatedAt > STALE_MIN * MIN ? " · status " + ago(ilNow() - l.updatedAt).replace(" ago", "") + " old" : "";
+    li.innerHTML = '<span class="name"></span><span class="chip ' + s.cls + '"></span><span class="meta"></span><a class="go" target="_blank" rel="noopener">Navigate</a>';
+    li.querySelector(".name").textContent = l.name;
+    li.querySelector(".chip").textContent = s.en;
+    li.querySelector(".meta").textContent = "~" + walk + " min walk · " + Math.round(l.d) + " m" + (l.capacity ? " · " + l.capacity + " spaces" : "") + fresh;
+    li.querySelector(".go").href = wazeUrl(l);
+    list.append(li);
+  }
+}
+
+// ---------------------------------------------------------------- street loop
+async function loadStreets(c) {
+  const q = '[out:json][timeout:20];way(around:320,' + c.lat + "," + c.lon + ')[highway~"^(residential|living_street|unclassified|tertiary)$"];out geom;';
+  const json = await getJson(OVERPASS_URL, { method: "POST", body: "data=" + encodeURIComponent(q), headers: { "Content-Type": "application/x-www-form-urlencoded" } });
+  return (json.elements || []).filter((w) => w.geometry && w.geometry.length > 1)
+    .map((w) => ({ name: (w.tags && (w.tags["name:en"] || w.tags.name)) || "", pts: w.geometry.map((g) => ({ lat: g.lat, lon: g.lon })) }));
+}
+function pickStops(c, streets) {
+  const stops = [];
+  for (const b of [30, 150, 270]) {
+    const target = offset(c, b, LOOP_RADIUS_M);
+    let best = null, bestD = Infinity;
+    if (streets) for (const w of streets) for (const p of w.pts) {
+      const dc = distM(c, p); if (dc < 110 || dc > 300) continue;
+      const d = distM(target, p); if (d < bestD) { bestD = d; best = { ...p, street: w.name }; }
+    }
+    stops.push(best && bestD < 160 ? best : { ...target, street: "" });
+  }
+  return stops.sort((p, q) => bearing(c, p) - bearing(c, q));
+}
+function bestDestination() {
+  const a = state.assuta; if (!a) return null;
+  if (a.status !== "מלא") return a;
+  const alt = state.lots.filter((l) => l !== a && (l.status === "פנוי" || l.status === "מעט"))
+    .map((l) => ({ l, d: distM(a, l) })).filter((x) => x.d <= PLANB_RADIUS_M * 1.5).sort((x, y) => x.d - y.d)[0];
+  return alt ? alt.l : a;
+}
+function renderLoop() {
+  const a = state.assuta; if (!a || typeof L === "undefined") { $("loop-note").textContent = a ? "Map didn't load." : "Needs the live feed to place the loop."; return; }
+  const dest = bestDestination();
+  const stops = pickStops(a, state.streets);
+  $("loop").href = "https://www.google.com/maps/dir/?api=1&destination=" + ll(dest) + "&waypoints=" + stops.map(ll).join("%7C") + "&travelmode=driving";
+  const names = stops.map((s) => s.street).filter(Boolean);
+  $("loop-note").textContent = (names.length ? "Stops on " + [...new Set(names)].join(", ") + ". " : "") +
+    "Ends at " + (dest === a ? "Assuta" : dest.name + " because Assuta shows full") + ". Google Maps starts from where you are." +
+    (state.streets ? "" : " Street data didn't load, so the stops are approximate.");
+  if (!state.map) {
+    state.map = L.map("map", { zoomControl: false, attributionControl: true }).setView([a.lat, a.lon], 16);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(state.map);
+  }
+  if (state.layers) state.layers.remove();
+  state.layers = L.layerGroup().addTo(state.map);
+  const css = getComputedStyle(document.documentElement);
+  const signColor = css.getPropertyValue("--sign").trim() || "#1b4fa0";
+  if (state.streets) for (const w of state.streets) L.polyline(w.pts.map((p) => [p.lat, p.lon]), { color: signColor, weight: 5, opacity: .45 }).addTo(state.layers);
+  L.polyline([...stops, dest].map((p) => [p.lat, p.lon]), { color: signColor, weight: 2, dashArray: "6 6" }).addTo(state.layers);
+  stops.forEach((p, i) => L.marker([p.lat, p.lon], { icon: L.divIcon({ className: "num-marker", html: String(i + 1), iconSize: [24, 24] }) }).addTo(state.layers));
+  for (const l of state.lots.filter((l) => distM(a, l) <= PLANB_RADIUS_M * 1.5)) {
+    const color = css.getPropertyValue(st(l.status).color.slice(4, -1)).trim() || "#888";
+    L.marker([l.lat, l.lon], { icon: L.divIcon({ className: "lot-marker", html: "", iconSize: [16, 16] }), title: l.name })
+      .bindPopup(l.name + " · " + st(l.status).en).addTo(state.layers).getElement().style.background = color;
+  }
+  state.map.fitBounds(L.latLngBounds([...stops, dest, a].map((p) => [p.lat, p.lon])).pad(0.25));
+}
+
+function renderHealth() {
+  const el = $("logger-health"), rows = state.rows;
+  if (!rows.length) { el.textContent = "History: no checks saved yet."; return; }
+  const last = rows[rows.length - 1], t = parseT(last.checked_at), age = ilNow() - t;
+  el.textContent = "History: " + rows.length.toLocaleString() + " checks since " + rows[0].checked_at.slice(0, 10) + ". Last check " + ago(age) +
+    (last.source === "error" ? " (the city feed didn't answer)" : "") +
+    (age > 60 * MIN && !DEMO ? ". The checker looks paused; open the repo's Actions tab to re-enable it." : ".");
+}
+
+// ---------------------------------------------------------------- boot
+async function refresh() {
+  $("refresh").disabled = true;
+  const [lots, rows] = await Promise.allSettled([loadLots(), loadLog()]);
+  state.lots = lots.status === "fulfilled" ? lots.value : [];
+  state.rows = rows.status === "fulfilled" ? rows.value : state.rows;
+  state.assuta = state.lots.find((l) => l.code === LOT_CODE) || state.lots.find((l) => l.name.includes(LOT_NAME)) || null;
+  renderStatus(); renderTonight(); renderStrip(); renderWeek(); renderPlanB(); renderHealth();
+  if (rows.status === "rejected") $("logger-health").textContent = "History didn't load (" + rows.reason.message + ").";
+  if (state.assuta && !state.streets && !DEMO) { try { state.streets = await loadStreets(state.assuta); } catch (e) { state.streets = null; } }
+  if (DEMO && !state.streets) { try { state.streets = (await getJson("demo/streets.json")); } catch (e) { state.streets = null; } }
+  renderLoop();
+  $("refresh").disabled = false;
+}
+$("refresh").addEventListener("click", refresh);
+$("demo-banner").hidden = !DEMO;
+refresh();
+setInterval(() => { if (!document.hidden) refresh(); }, 2 * 60 * 1000);
+</script>
+</body>
+</html>
