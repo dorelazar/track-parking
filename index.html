@@ -598,24 +598,24 @@ function renderLots() {
 function renderSteps() {
   const ol = $("steps"); ol.innerHTML = ""; if (!S.geo) return;
   const legs = S.geo.route.legs;
+  const DESC = {
+    gabirol: "Heading south",
+    hyrcanus: "One-way west",
+    binnun: "One-way south, all the way to Jabotinsky. The Basel lot (Ashtori HaParhi 5) is just west of it.",
+    jabotinsky: "One short block east. Assuta is behind you at Jabotinsky 62.",
+    harnevo: "North toward the synagogue",
+    gilad: "Short block east",
+    eingedi: "Short block north",
+    yericho: "Past the synagogue, back to Bin Nun. Repeat from step 3.",
+  };
   legs.forEach((l) => {
-    if (l.id === "binnun_top") return; // folded into the Bin Nun step below
+    if (l.id === "binnun_top") return; // folded into the Bin Nun step
     const li = el("li", l.part === "loop" ? "loop" : "");
-    const t = el("span", "st"); t.append(l.turn + " " + l.en + " · ");
-    const he = el("bdi", "he", l.street); he.dir = "rtl"; t.append(he);
+    const t = el("span", "st", (l.id === "binnun" ? "Turn left onto" : l.turn) + " " + l.en);
     if (l.search) t.append(el("span", "tag", "Look for parking"));
     const sub = el("span", "sub");
-    if (l.id === "gabirol") sub.textContent = "Heading south";
-    else if (l.id === "hyrcanus") sub.textContent = "One-way west";
-    else if (l.id === "binnun") sub.textContent = "One-way south, all the way to Jabotinsky. The Basel lot (Ashtori HaParhi 5) is just west of it.";
-    else if (l.id === "jabotinsky") sub.textContent = "One short block east. Assuta is behind you at Jabotinsky 62.";
-    else if (l.id === "harnevo") sub.textContent = "North toward the synagogue";
-    else if (l.id === "gilad") sub.textContent = "Short block";
-    else if (l.id === "eingedi") sub.textContent = "Short block";
-    else if (l.id === "yericho") sub.textContent = "Past " + (S.geo.synagogue ? "the " + S.geo.synagogue.name + " synagogue" : "the synagogue") + ", back to Bin Nun. Repeat from step 3.";
-    li.append(t, sub);
-    if (l.id === "binnun") li.querySelector(".st").firstChild.textContent = "Turn left onto Yehoshua Bin Nun · ";
-    ol.append(li);
+    const he = el("bdi", null, l.street); he.dir = "rtl"; sub.append(he, " · " + (DESC[l.id] || ""));
+    li.append(t, sub); ol.append(li);
   });
   const r = S.geo.route.waypoints;
   $("drive-route").href = gmapsRoute(pt(r.yericho), [pt(r.hyrcanus), pt(r.binnun), pt(r.harnevo)]);
@@ -692,14 +692,14 @@ function renderMap() {
   if (!S.geo || typeof L === "undefined") { if (typeof L === "undefined") $("map").textContent = "Map didn't load. Check your connection."; return; }
   const now = ilNow();
   if (!S.map) {
-    S.map = L.map("map", { zoomControl: false, tap: true }).setView([32.0895, 34.7808], 16);
+    S.map = L.map("map", { zoomControl: false });
+    const pts = S.geo.route.legs.filter((l) => l.part === "loop").flatMap((l) => l.path).concat(Object.values(S.geo.lots).map((l) => [l.lat, l.lon]));
+    const fit = () => { S.map.invalidateSize(); S.map.fitBounds(L.latLngBounds(pts).pad(0.15), { maxZoom: 17, animate: false }); };
+    fit(); setTimeout(fit, 400);
     L.control.zoom({ position: "bottomright" }).addTo(S.map);
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(S.map);
     S.map.on("click", onMapClick);
     S.layers = L.layerGroup().addTo(S.map);
-    const pts = S.geo.route.legs.filter((l) => l.part === "loop").flatMap((l) => l.path).concat(Object.values(S.geo.lots).map((l) => [l.lat, l.lon]));
-    const fit = () => { S.map.invalidateSize(); S.map.fitBounds(L.latLngBounds(pts).pad(0.15), { maxZoom: 17 }); };
-    fit(); setTimeout(fit, 400);
   }
   S.layers.clearLayers();
   const sign = cssVar("--sign") || "#1b4fa0";

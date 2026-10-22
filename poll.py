@@ -320,6 +320,12 @@ def run_alerts(rows_by_lot, now, state_path):
     sent = state.setdefault("sent", {})
     page = os.environ.get("PAGE_URL") or None
     changed = False
+    if not state.get("welcomed") and os.environ.get("NTFY_TOPIC", "").strip():
+        if notify("Parking alerts are on",
+                  "You'll get a message when Assuta gets few spaces or fills, when Basel fills too, "
+                  "and about 20 minutes before tonight's park-by time.", page, 3):
+            state["welcomed"] = now.strftime(FMT)
+            changed = True
     for key, title, msg, prio in plan_alerts(rows_by_lot, now, sent):
         if notify(title, msg, page, prio):
             sent[key] = now.strftime(FMT)
