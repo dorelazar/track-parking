@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Assuta Parking</title>
+<title>Track Parking</title>
 <meta name="theme-color" content="#1b4fa0">
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon.svg">
@@ -13,11 +13,11 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Assistant:wght@400;600;700&family=IBM+Plex+Mono:wght@500&family=Secular+One&display=swap">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
-/* Layout: one phone-width column; status first, then tonight, pattern, plan B, cruise loop.
-   Visual language: Tel Aviv curb paint (blue-white) and municipal sign blue. */
+/* Layout: one phone-width column. Decision first, then the two lots, the loop, curbs, patterns, fallbacks.
+   Visual language: Tel Aviv curb paint (blue-white, red-white) and municipal sign blue. */
 :root {
-  --bg: #f2f4f8; --surface: #ffffff; --ink: #0f1b2d; --muted: #5a6678; --line: #d8dde6;
-  --sign: #1b4fa0; --sign-ink: #ffffff; --curb: #ffffff;
+  --bg: #f2f4f8; --surface: #ffffff; --ink: #0f1b2d; --muted: #5a6678; --line: #d8dde6; --soft: #eef1f6;
+  --sign: #1b4fa0; --sign-ink: #ffffff; --curb: #ffffff; --basel: #7a3fa8;
   --free: #12804a; --few: #a86200; --full: #c62828; --closed: #6b7280;
   --free-bg: #e3f4ea; --few-bg: #fbefd9; --full-bg: #fbe4e2; --closed-bg: #eceef1;
   --font-display: "Secular One", "Assistant", system-ui, sans-serif;
@@ -27,21 +27,23 @@
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0b111d; --surface: #131b2a; --ink: #e7ecf4; --muted: #93a0b3; --line: #253047;
-    --sign: #6f9cf0; --sign-ink: #0b111d; --curb: #e7ecf4;
+    --bg: #0b111d; --surface: #131b2a; --ink: #e7ecf4; --muted: #93a0b3; --line: #253047; --soft: #1a2334;
+    --sign: #6f9cf0; --sign-ink: #0b111d; --curb: #e7ecf4; --basel: #c08ae6;
     --free: #45c486; --few: #f0a53c; --full: #ff6f62; --closed: #9aa3b0;
     --free-bg: #12301f; --few-bg: #35270f; --full-bg: #3a1716; --closed-bg: #1f2633;
     color-scheme: dark;
   }
+  .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.85) contrast(.9) saturate(.6); }
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { margin: 0; }
 body {
   background: var(--bg); color: var(--ink); font: 16px/1.45 var(--font-body);
   padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 .wrap {
-  max-width: 560px; margin: 0 auto; display: grid; gap: 14px;
+  max-width: 600px; margin: 0 auto; display: grid; gap: 14px;
   padding-left: max(16px, env(safe-area-inset-left, 0px));
   padding-right: max(16px, env(safe-area-inset-right, 0px));
   padding-block: 0 32px;
@@ -52,67 +54,112 @@ header .sub { color: var(--muted); font-size: 14px; margin-top: 4px; }
 .curb { height: 7px; border-radius: 2px; margin-top: 12px;
   background: repeating-linear-gradient(90deg, var(--sign) 0 26px, var(--curb) 26px 52px);
   box-shadow: inset 0 0 0 1px var(--line); }
-section { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px; display: grid; gap: 10px; min-width: 0; }
+section { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px; display: grid; gap: 12px; min-width: 0; }
 h2 { font: 13px/1.2 var(--font-body); font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0; }
-.muted { color: var(--muted); }
-.small { font-size: 14px; }
-.mono { font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+h3 { font: 700 15px/1.3 var(--font-body); margin: 0; }
 .note { font-size: 14px; color: var(--muted); margin: 0; }
 .warn { font-size: 14px; border-radius: 10px; padding: 8px 10px; background: var(--few-bg); color: var(--ink); margin: 0; }
-
-/* status hero */
-.hero { gap: 12px; }
-.statusline { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
-.pill { display: inline-flex; align-items: baseline; gap: 10px; padding: 8px 16px; border-radius: 999px; font: 30px/1.1 var(--font-display); }
-.pill .he { font-size: 20px; opacity: .85; }
+.he, bdi { font-family: var(--font-body); unicode-bidi: isolate; }
+.he { color: var(--muted); font-weight: 400; }
+.more { justify-self: start; }
+.mono { font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+.btns { display: flex; flex-wrap: wrap; gap: 8px; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; padding: 0 16px; border-radius: 10px; font: 600 15px var(--font-body); text-decoration: none; border: 1px solid var(--line); color: var(--ink); background: var(--surface); cursor: pointer; }
+.btn.primary { background: var(--sign); color: var(--sign-ink); border-color: var(--sign); }
+.btn.small { min-height: 36px; padding: 0 12px; font-size: 14px; }
+.btn:disabled { opacity: .5; cursor: default; }
+.btn:focus-visible, a:focus-visible, summary:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid var(--sign); outline-offset: 2px; }
+.pill { display: inline-flex; align-items: baseline; gap: 8px; padding: 4px 12px; border-radius: 999px; font: 600 15px var(--font-body); white-space: nowrap; }
 .s-free { background: var(--free-bg); color: var(--free); }
 .s-few { background: var(--few-bg); color: var(--few); }
 .s-full { background: var(--full-bg); color: var(--full); }
 .s-closed, .s-unknown { background: var(--closed-bg); color: var(--closed); }
-.facts { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 14px; color: var(--muted); }
-.btns { display: flex; flex-wrap: wrap; gap: 8px; }
-.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; padding: 0 16px; border-radius: 10px; font: 600 15px var(--font-body); text-decoration: none; border: 1px solid var(--line); color: var(--ink); background: var(--surface); cursor: pointer; }
-.btn.primary { background: var(--sign); color: var(--sign-ink); border-color: var(--sign); }
-.btn:focus-visible, a:focus-visible { outline: 3px solid var(--sign); outline-offset: 2px; }
 
-/* tonight */
-.big-time { font: 40px/1 var(--font-display); }
-.tonight-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-.tonight-grid div { display: grid; gap: 2px; }
-.tonight-grid .k { font-size: 13px; color: var(--muted); }
-.tonight-grid .v { font: 22px/1.1 var(--font-data); font-variant-numeric: tabular-nums; }
-.tonight-grid .v.key { color: var(--sign); }
+/* decision */
+.decide { border-width: 2px; border-color: var(--sign); gap: 10px; }
+.decide .verdict { font: 34px/1.05 var(--font-display); margin: 0; text-wrap: balance; }
+.decide .why { margin: 0; font-size: 16px; }
+.decide .timing { margin: 0; font-size: 15px; padding: 10px 12px; border-radius: 10px; background: var(--soft); }
+.decide .timing b { font-family: var(--font-data); font-weight: 500; }
 
-/* charts */
+/* lot cards */
+.lots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.lot { border: 1px solid var(--line); border-radius: 12px; padding: 12px; display: grid; gap: 8px; align-content: start; background: var(--surface); }
+.lot.first { border-color: var(--sign); box-shadow: inset 0 0 0 1px var(--sign); }
+.lot .top { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.lot .name { font: 22px/1.1 var(--font-display); }
+.lot .rank { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.lot.first .rank { color: var(--sign); }
+.lot .meta { font-size: 13px; color: var(--muted); display: grid; gap: 2px; }
+.lot .meta b { color: var(--ink); font-family: var(--font-data); font-weight: 500; }
+.lot .links { display: flex; gap: 6px; flex-wrap: wrap; }
+.lot .stale { font-size: 13px; color: var(--few); }
+@media (max-width: 380px) { .lots { grid-template-columns: 1fr; } }
+
+/* route */
+.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; counter-reset: step; }
+.steps li { counter-increment: step; display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 2px 10px; padding: 8px 0; border-top: 1px solid var(--line); align-items: baseline; }
+.steps li:first-child { border-top: 0; }
+.steps li::before { content: counter(step); grid-row: span 2; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font: 600 13px var(--font-data); background: var(--soft); color: var(--muted); }
+.steps li.loop::before { background: var(--sign); color: var(--sign-ink); }
+.steps .st { font-weight: 600; }
+.steps .sub { font-size: 13px; color: var(--muted); }
+.tag { display: inline-block; font: 600 12px var(--font-body); padding: 1px 8px; border-radius: 999px; background: var(--free-bg); color: var(--free); margin-left: 6px; }
+.loop-head { font-size: 13px; color: var(--muted); padding-top: 6px; }
+#map { height: 340px; border-radius: 10px; border: 1px solid var(--line); z-index: 0; }
+.leaflet-container { font: 13px var(--font-body); background: var(--closed-bg); }
+.mk-lot { border-radius: 50%; border: 2px solid var(--surface); display: grid !important; place-items: center; font: 700 13px var(--font-body); color: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.35); }
+.mk-curb { border-radius: 3px; border: 2px solid var(--surface); box-shadow: 0 1px 2px rgba(0,0,0,.3); }
+.mk-arrow { color: var(--sign); font: 700 16px/1 var(--font-body); display: grid !important; place-items: center; }
+.mk-syn { font-size: 15px; line-height: 1; display: grid !important; place-items: center; background: var(--surface); border-radius: 50%; border: 1px solid var(--line); }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; color: var(--muted); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
+.legend i.sq { border-radius: 2px; }
+.picking #map { outline: 3px dashed var(--sign); outline-offset: 2px; cursor: crosshair; }
+
+/* lists */
+.items { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; align-items: start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; }
+.item .t { font-weight: 700; }
+.item .m { font-size: 13px; color: var(--muted); grid-column: 1; }
+.item .r { grid-column: 2; grid-row: 1 / span 2; display: grid; gap: 6px; justify-items: end; }
+.item .go { font-size: 14px; font-weight: 600; color: var(--sign); text-decoration: none; }
+.item details { grid-column: 1 / -1; font-size: 13px; color: var(--muted); }
+.item details p { margin: 6px 0 0; direction: rtl; text-align: right; font-size: 14px; color: var(--ink); }
+.item summary { cursor: pointer; }
+.chip { font: 600 13px var(--font-body); padding: 3px 10px; border-radius: 999px; white-space: nowrap; }
+.sub-h { font: 700 14px var(--font-body); margin: 4px 0 0; }
+
+/* add-spot form */
+.form { display: grid; gap: 10px; padding: 12px; border: 1px dashed var(--sign); border-radius: 10px; }
+.form .row { display: flex; flex-wrap: wrap; gap: 10px; }
+.form label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); min-width: 0; }
+.form input, .form select { font: 16px var(--font-body); padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); min-height: 40px; }
+.form input[type=text] { width: 100%; }
+
+/* tonight + charts */
+.tonight { width: 100%; border-collapse: collapse; font-size: 15px; }
+.tonight th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 600; padding: 0 6px 6px 0; }
+.tonight td { padding: 6px 6px 6px 0; border-top: 1px solid var(--line); font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+.tonight td:first-child { font-family: var(--font-body); font-weight: 700; }
+.tonight td.key { color: var(--sign); }
 .chart { overflow-x: auto; }
 svg text { font-family: var(--font-data); font-size: 11px; fill: var(--muted); }
 svg .grid { stroke: var(--line); stroke-width: 1; }
-svg .range { stroke: var(--sign); stroke-opacity: .28; stroke-width: 8; stroke-linecap: round; }
-svg .dot { fill: var(--full); }
-svg .fewtick { fill: none; stroke: var(--few); stroke-width: 2; }
-svg .today-row { fill: var(--sign); fill-opacity: .08; }
 svg .day { font-family: var(--font-body); font-size: 13px; fill: var(--ink); }
 svg .day.today { font-weight: 700; fill: var(--sign); }
+svg .today-row { fill: var(--sign); fill-opacity: .08; }
+svg .a-dot { fill: var(--sign); }
+svg .b-dot { fill: var(--surface); stroke: var(--basel); stroke-width: 2.5; }
+svg .a-range { stroke: var(--sign); stroke-opacity: .3; stroke-width: 5; stroke-linecap: round; }
+svg .b-range { stroke: var(--basel); stroke-opacity: .3; stroke-width: 5; stroke-linecap: round; }
 svg .nodata { font-family: var(--font-body); font-size: 12px; }
-.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; color: var(--muted); }
-.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
-.strip { display: flex; height: 18px; border-radius: 4px; overflow: hidden; background: var(--closed-bg); }
+svg .a-lbl { fill: var(--sign); }
+svg .b-lbl { fill: var(--basel); }
+.strip-row { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 8px; align-items: center; font-size: 13px; font-weight: 600; }
+.strip { display: flex; height: 16px; border-radius: 4px; overflow: hidden; background: var(--closed-bg); }
 .strip span { display: block; height: 100%; }
-.strip-axis { display: flex; justify-content: space-between; font: 11px var(--font-data); color: var(--muted); }
-
-/* plan B */
-.lots { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-.lot { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; align-items: center; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; }
-.lot .name { font-weight: 700; }
-.lot .meta { font-size: 13px; color: var(--muted); grid-column: 1; }
-.lot .chip { font: 600 13px var(--font-body); padding: 3px 10px; border-radius: 999px; grid-row: 1; grid-column: 2; justify-self: end; }
-.lot .go { grid-column: 2; justify-self: end; font-size: 14px; font-weight: 600; color: var(--sign); text-decoration: none; }
-
-/* map */
-#map { height: 300px; border-radius: 10px; border: 1px solid var(--line); z-index: 0; }
-.leaflet-container { font: 13px var(--font-body); background: var(--closed-bg); }
-.num-marker { background: var(--sign); color: var(--sign-ink); border-radius: 50%; width: 24px !important; height: 24px !important; display: grid; place-items: center; font: 600 13px var(--font-data); border: 2px solid var(--surface); }
-.lot-marker { width: 16px !important; height: 16px !important; border-radius: 4px; border: 2px solid var(--surface); }
+.strip-axis { display: flex; justify-content: space-between; font: 11px var(--font-data); color: var(--muted); margin-left: 60px; }
 
 footer { font-size: 13px; color: var(--muted); display: grid; gap: 4px; padding-inline: 2px; }
 footer a { color: inherit; }
@@ -120,74 +167,110 @@ footer a { color: inherit; }
 </style>
 </head>
 <body>
-<div class="wrap">
+<div class="wrap" id="app">
   <header>
-    <h1>Assuta Parking</h1>
-    <div class="sub">חניון אסותא · Jabotinsky 62 · Ahuzot HaHof</div>
+    <h1>Track Parking</h1>
+    <div class="sub">Assuta first, Basel second, then the street loop</div>
     <div class="curb" aria-hidden="true"></div>
   </header>
 
   <p class="warn" id="demo-banner" hidden>Sample data. This shows how the page looks once a few weeks of checks exist.</p>
 
-  <section class="hero" aria-live="polite">
-    <h2>Right now</h2>
-    <div class="statusline">
-      <span class="pill s-unknown" id="pill">Loading<span class="he"></span></span>
-    </div>
-    <div class="facts" id="facts"></div>
-    <p class="warn" id="stale" hidden></p>
+  <section class="decide" aria-live="polite">
+    <h2>Best option now</h2>
+    <p class="verdict" id="verdict">Checking…</p>
+    <p class="why" id="why"></p>
+    <div class="btns" id="go-btns"></div>
+    <p class="timing" id="timing" hidden></p>
+  </section>
+
+  <div class="lots" id="lots"></div>
+
+  <section id="route">
+    <h2>Street loop</h2>
+    <ol class="steps" id="steps"></ol>
     <div class="btns">
-      <a class="btn primary" id="waze" href="#" target="_blank" rel="noopener">Drive there in Waze</a>
-      <a class="btn" id="gmaps" href="#" target="_blank" rel="noopener">Google Maps</a>
-      <button class="btn" id="refresh" type="button">Refresh</button>
+      <a class="btn primary" id="drive-route" href="#" target="_blank" rel="noopener">Drive the route</a>
+      <a class="btn" id="drive-lap" href="#" target="_blank" rel="noopener">One more lap</a>
+    </div>
+    <p class="note">Opens Google Maps from where you are, with stops that keep it on these streets.</p>
+    <div id="map" role="img" aria-label="Map of the street loop, both lots and nearby curb spots"></div>
+    <div class="legend">
+      <span><i style="background:var(--sign)"></i>Loop</span>
+      <span><i class="sq" style="background:var(--free)"></i>Curb open now</span>
+      <span><i class="sq" style="background:var(--closed)"></i>Curb restricted now</span>
+      <span><i class="sq" style="background:var(--few)"></i>Check the sign</span>
+      <span><i style="background:var(--basel)"></i>My spot</span>
     </div>
   </section>
 
-  <section id="tonight">
+  <section id="curbs">
+    <h2>Red-white curbs you can use</h2>
+    <p class="note">Loading zones whose sign lets anyone park outside the loading hours, from the city's sign records. Always check the sign on the pole.</p>
+    <ul class="items" id="curb-list"></ul>
+    <h3 class="sub-h">My spots</h3>
+    <p class="note" id="my-empty">Seen a red-white curb with hours on your loop? Add it here and the page will tell you when it's open. Saved on this phone only.</p>
+    <ul class="items" id="my-list"></ul>
+    <div class="form" id="spot-form" hidden>
+      <p class="note" id="pick-hint">Tap the map where the curb is.</p>
+      <label for="spot-name">Name
+        <input type="text" id="spot-name" placeholder="Har Nevo, by the corner" maxlength="60" autocomplete="off">
+      </label>
+      <div class="row">
+        <label for="spot-from">Parking allowed from <input type="time" id="spot-from" value="19:00"></label>
+        <label for="spot-to">until <input type="time" id="spot-to" value="07:00"></label>
+        <label for="spot-days">Days
+          <select id="spot-days">
+            <option value="all">Every day</option>
+            <option value="0-4">Sun–Thu only (all day Fri–Sat)</option>
+            <option value="0-5">Sun–Fri only (all day Sat)</option>
+          </select>
+        </label>
+      </div>
+      <div class="btns">
+        <button class="btn primary small" id="spot-save" type="button" disabled>Save spot</button>
+        <button class="btn small" id="spot-cancel" type="button">Cancel</button>
+      </div>
+    </div>
+    <div class="btns"><button class="btn small" id="spot-add" type="button">Add a spot</button></div>
+  </section>
+
+  <section id="tonight-sec">
     <h2 id="tonight-title">Tonight</h2>
-    <div id="tonight-body"><p class="note">Loading the history…</p></div>
+    <div id="tonight-body"></div>
+  </section>
+
+  <section>
+    <h2>When they fill, by day</h2>
+    <div class="chart" id="week"></div>
+    <div class="legend"><span><i style="background:var(--sign)"></i>Assuta usually full</span><span><i style="border:2.5px solid var(--basel);width:10px;height:10px"></i>Basel usually full</span><span>Bars: earliest to latest</span></div>
   </section>
 
   <section>
     <h2>Last 24 hours</h2>
-    <div class="strip" id="strip" role="img" aria-label="Assuta status over the last 24 hours"></div>
+    <div id="strips"></div>
     <div class="strip-axis" id="strip-axis"></div>
     <div class="legend"><span><i style="background:var(--free)"></i>Room</span><span><i style="background:var(--few)"></i>Few spaces</span><span><i style="background:var(--full)"></i>Full</span><span><i style="background:var(--closed-bg);box-shadow:inset 0 0 0 1px var(--line)"></i>No data</span></div>
   </section>
 
   <section>
-    <h2>When it fills, by day</h2>
-    <div class="chart" id="week"></div>
-    <div class="legend"><span><i style="background:var(--full)"></i>Usually full</span><span><i style="border:2px solid var(--few);width:10px;height:10px"></i>Few spaces from</span><span><i style="background:var(--sign);opacity:.35"></i>Earliest to latest</span></div>
+    <h2>If both lots are full</h2>
+    <ul class="items" id="planb"></ul>
   </section>
 
   <section>
-    <h2>Plan B · within a 5-minute walk</h2>
-    <ul class="lots" id="planb"><li class="note">Loading nearby lots…</li></ul>
-  </section>
-
-  <section>
-    <h2>Street loop</h2>
-    <p class="note">Three short stops on the side streets around Assuta, ending at the best lot with room. Highlighted streets are the ones worth scanning for a curb spot.</p>
-    <div id="map" role="img" aria-label="Map of the street loop around Assuta"></div>
+    <h2>Rent a spot</h2>
+    <ul class="items" id="rent"></ul>
     <div class="btns">
-      <a class="btn primary" id="loop" href="#" target="_blank" rel="noopener">Start loop in Google Maps</a>
-    </div>
-    <p class="note" id="loop-note"></p>
-  </section>
-
-  <section>
-    <h2>Rent a spot nearby</h2>
-    <p class="note">Private spots for monthly rent near Assuta. These open searches; listings change daily.</p>
-    <div class="btns">
-      <a class="btn" target="_blank" rel="noopener" href="https://www.google.com/search?q=%D7%97%D7%A0%D7%99%D7%94+%D7%9C%D7%94%D7%A9%D7%9B%D7%A8%D7%94+%D7%96%27%D7%91%D7%95%D7%98%D7%99%D7%A0%D7%A1%D7%A7%D7%99+%D7%AA%D7%9C+%D7%90%D7%91%D7%99%D7%91+site%3Ayad2.co.il">Yad2 listings</a>
-      <a class="btn" target="_blank" rel="noopener" href="https://www.google.com/search?q=%D7%97%D7%A0%D7%99%D7%94+%D7%9C%D7%94%D7%A9%D7%9B%D7%A8%D7%94+%D7%94%D7%A6%D7%A4%D7%95%D7%9F+%D7%94%D7%99%D7%A9%D7%9F+%D7%AA%D7%9C+%D7%90%D7%91%D7%99%D7%91">Old North, any site</a>
+      <a class="btn small" target="_blank" rel="noopener" href="https://www.google.com/search?q=%D7%97%D7%A0%D7%99%D7%94+%D7%9C%D7%94%D7%A9%D7%9B%D7%A8%D7%94+%D7%96%27%D7%91%D7%95%D7%98%D7%99%D7%A0%D7%A1%D7%A7%D7%99+%D7%AA%D7%9C+%D7%90%D7%91%D7%99%D7%91+site%3Ayad2.co.il">Yad2 listings</a>
+      <a class="btn small" target="_blank" rel="noopener" href="https://www.google.com/search?q=%D7%97%D7%A0%D7%99%D7%94+%D7%9C%D7%94%D7%A9%D7%9B%D7%A8%D7%94+%D7%94%D7%A6%D7%A4%D7%95%D7%9F+%D7%94%D7%99%D7%A9%D7%9F+%D7%AA%D7%9C+%D7%90%D7%91%D7%99%D7%91">Old North, any site</a>
     </div>
   </section>
 
   <footer>
-    <div id="logger-health"></div>
-    <div>Live status: <a href="https://gisn.tel-aviv.gov.il/arcgis/rest/services/IView2/MapServer/970" target="_blank" rel="noopener">Tel Aviv GIS, Ahuzot HaHof lots</a>. Street data © OpenStreetMap contributors.</div>
+    <div id="health"></div>
+    <div class="btns"><button class="btn small" id="refresh" type="button">Refresh now</button></div>
+    <div>Live status: <a href="https://gisn.tel-aviv.gov.il/arcgis/rest/services/IView2/MapServer/970" target="_blank" rel="noopener">Tel Aviv GIS</a>. Curb signs and night lots: Tel Aviv GIS layers 449 and 488. Streets © OpenStreetMap contributors.</div>
   </footer>
 </div>
 
@@ -196,38 +279,43 @@ footer a { color: inherit; }
 "use strict";
 // ---------------------------------------------------------------- settings
 // Keep the analysis numbers in sync with poll.py.
-const LOT_CODE = 122, LOT_NAME = "אסותא";
+const LOTS = [
+  { key: "assuta", name: "אסותא", en: "Assuta", rank: "1st choice" },
+  { key: "basel", name: "בזל", en: "Basel", rank: "Backup" },
+];
 const EVENING_START_H = 15, EVENING_END_H = 4, STALE_MIN = 90, FRESH_SRC_MIN = 20,
       MAX_GAP_MIN = 45, MIN_CHECKS_FOR_NO_FILL = 40, LEAD_MIN = 25, WEEKS_BACK = 8;
-const PLANB_RADIUS_M = 450, WALK_M_PER_MIN = 80, DETOUR = 1.3;
-const LOOP_RADIUS_M = 210;
+const PLANB_RADIUS_M = 700, WALK_M_PER_MIN = 75;
 const FEED_URL = "https://gisn.tel-aviv.gov.il/arcgis/rest/services/IView2/MapServer/970/query" +
   "?where=1%3D1&outFields=code_achoza,shem_chenyon,ktovet,lat,lon,status_chenyon,tr_status_chenyon," +
-  "mispar_mekomot_bchenyon,hearot_taarif&returnGeometry=false&f=json";
-const OVERPASS_URL = "https://overpass-api.de/api/interpreter";
+  "mispar_mekomot_bchenyon&returnGeometry=false&f=json";
+const SPOTS_KEY = "track-parking-spots";
 
 const DEMO = new URLSearchParams(location.search).has("demo");
-function logUrl() {
-  if (DEMO) return "demo/assuta.csv";
+function dataBase() {
+  if (DEMO) return "demo/";
   const m = /^([^.]+)\.github\.io$/.exec(location.hostname);
   const repo = location.pathname.split("/").filter(Boolean)[0];
-  if (m && repo) return "https://raw.githubusercontent.com/" + m[1] + "/" + repo + "/data/assuta.csv";
-  return "data/assuta.csv"; // local testing
+  if (m && repo) return "https://raw.githubusercontent.com/" + m[1] + "/" + repo + "/data/";
+  return "data/";
 }
 
 const STATUS = {
-  "פנוי": { cls: "s-free", en: "Room", color: "var(--free)" },
-  "מעט": { cls: "s-few", en: "Few spaces", color: "var(--few)" },
-  "מלא": { cls: "s-full", en: "Full", color: "var(--full)" },
-  "סגור": { cls: "s-closed", en: "Closed", color: "var(--closed)" },
+  "פנוי": { cls: "s-free", en: "Room", color: "--free" },
+  "מעט": { cls: "s-few", en: "Few spaces", color: "--few" },
+  "מלא": { cls: "s-full", en: "Full", color: "--full" },
+  "סגור": { cls: "s-closed", en: "Closed", color: "--closed" },
 };
-const UNKNOWN = { cls: "s-unknown", en: "No data", color: "var(--closed-bg)" };
+const UNKNOWN = { cls: "s-unknown", en: "No data", color: "--closed-bg" };
 const st = (s) => STATUS[s] || UNKNOWN;
+const hasRoom = (s) => s === "פנוי" || s === "מעט";
 const $ = (id) => document.getElementById(id);
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
 // ---------------------------------------------------------------- time
-// Every time on this page is Israel wall-clock time stored as if it were UTC
-// (that is how the city feed encodes tr_status_chenyon), so we never mix zones.
+// Every time here is Israel wall-clock time stored as if it were UTC
+// (that is how the city feed encodes tr_status_chenyon), so zones never mix.
 const ilFmt = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Jerusalem", year: "numeric",
   month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
 function ilNow() {
@@ -239,11 +327,14 @@ function parseT(s) {
   const m = /^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d)/.exec(s || "");
   return m ? Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]) : null;
 }
-const hourOf = (t) => new Date(t).getUTCHours();
-const dayStart = (t) => t - (t % DAY);
-function hhmmAbs(t) { const d = new Date(t); return pad(d.getUTCHours()) + ":" + pad(d.getUTCMinutes()); }
-function hhmm(minAfterNoon) { const m = ((minAfterNoon + 720) % 1440 + 1440) % 1440; return pad(Math.floor(m / 60)) + ":" + pad(m % 60); }
 const pad = (n) => String(n).padStart(2, "0");
+const hourOf = (t) => new Date(t).getUTCHours();
+const dowOf = (t) => new Date(t).getUTCDay();          // Sun=0
+const minOfDay = (t) => Math.floor((t % DAY) / MIN);
+const dayStart = (t) => t - (t % DAY);
+const hhmmAbs = (t) => { const d = new Date(t); return pad(d.getUTCHours()) + ":" + pad(d.getUTCMinutes()); };
+const hhmm = (minAfterNoon) => { const m = ((minAfterNoon + 720) % 1440 + 1440) % 1440; return pad(Math.floor(m / 60)) + ":" + pad(m % 60); };
+const toMin = (s) => { const [h, m] = s.split(":").map(Number); return h * 60 + m; };
 function ago(ms) {
   const m = Math.round(ms / MIN);
   if (m < 1) return "just now";
@@ -251,12 +342,13 @@ function ago(ms) {
   if (m < 48 * 60) return Math.round(m / 60) + " h ago";
   return Math.round(m / 1440) + " days ago";
 }
+const fmtDur = (m) => (m >= 60 ? Math.floor(m / 60) + " h " : "") + (m % 60) + " min";
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 // ---------------------------------------------------------------- analysis (mirror of poll.py)
 function parseCsv(text) {
   const lines = text.trim().split(/\r?\n/); const head = lines.shift().split(",");
-  return lines.map((l) => { const v = l.split(","); const o = {}; head.forEach((h, i) => (o[h] = v[i] || "")); return o; });
+  return lines.filter(Boolean).map((l) => { const v = l.split(","); const o = {}; head.forEach((h, i) => (o[h] = v[i] || "")); return o; });
 }
 function effective(row) {
   const checked = parseT(row.checked_at), src = parseT(row.source_time);
@@ -304,7 +396,7 @@ function evenings(rows) {
 const median = (a) => { const s = [...a].sort((x, y) => x - y), n = s.length; return n % 2 ? s[(n - 1) / 2] : Math.floor((s[n / 2 - 1] + s[n / 2]) / 2); };
 function predict(evs, weekday /* Sun=0 */, today) {
   const since = today - WEEKS_BACK * 7 * DAY;
-  let same = [...evs].filter(([d, r]) => new Date(d).getUTCDay() === weekday && d >= since && d < today && r.usable);
+  let same = [...evs].filter(([d, r]) => dowOf(d) === weekday && d >= since && d < today && r.usable);
   let scope = "weekday";
   if (same.filter(([, r]) => r.filled).length < 2) {
     same = [...evs].filter(([d, r]) => d >= today - 21 * DAY && d < today && r.usable);
@@ -318,265 +410,497 @@ function predict(evs, weekday /* Sun=0 */, today) {
     fewMedian: fews.length ? median(fews) : null, filled: fulls.length, evenings: same.length, arriveBy: med - LEAD_MIN };
 }
 
+// ---------------------------------------------------------------- curb windows
+// A curb window list says when parking is RESTRICTED (loading hours).
+function inWindow(w, t) {
+  const d = dowOf(t), m = minOfDay(t), f = toMin(w.from), to = toMin(w.to);
+  if (f < to) return w.days.includes(d) && m >= f && m < to;
+  return (w.days.includes(d) && m >= f) || (w.days.includes((d + 6) % 7) && m < to);
+}
+const curbOpen = (c, t) => !c.windows.some((w) => inWindow(w, t));
+// My spots store when parking is ALLOWED on the listed days (all day on the
+// others), which is the same as a restricted window from "to" until "from".
+const SPOT_DAYS = { all: [0, 1, 2, 3, 4, 5, 6], "0-4": [0, 1, 2, 3, 4], "0-5": [0, 1, 2, 3, 4, 5] };
+const spotOpen = (s, t) => !inWindow({ days: SPOT_DAYS[s.days] || SPOT_DAYS.all, from: s.to, to: s.from }, t);
+function nextChange(isOpen, t) {
+  const now = isOpen(t);
+  for (let k = 1; k <= 7 * 24 * 12; k++) { const u = t - (t % (5 * MIN)) + k * 5 * MIN; if (isOpen(u) !== now) return u; }
+  return null;
+}
+function whenText(t, u) {
+  if (u == null) return "all week";
+  if (dayStart(u) === dayStart(t)) return hhmmAbs(u);
+  if (dayStart(u) === dayStart(t) + DAY) return hhmmAbs(u) + " tomorrow";
+  return DAYS[dowOf(u)].slice(0, 3) + " " + hhmmAbs(u);
+}
+
 // ---------------------------------------------------------------- data
-async function getJson(url, opts) {
+async function getJson(url) {
   const ctl = new AbortController(); const timer = setTimeout(() => ctl.abort(), 25000);
-  try { const r = await fetch(url, { cache: "no-store", signal: ctl.signal, ...opts }); if (!r.ok) throw new Error("HTTP " + r.status); return await r.json(); }
+  try { const r = await fetch(url, { cache: "no-store", signal: ctl.signal }); if (!r.ok) throw new Error("HTTP " + r.status); return await r.json(); }
   finally { clearTimeout(timer); }
 }
-async function loadLots() {
-  const json = DEMO ? await getJson("demo/lots.json") : await getJson(FEED_URL);
-  if (json.error) throw new Error(json.error.message || "feed error");
-  if (DEMO) json.features.forEach((f) => (f.attributes.tr_status_chenyon = ilNow() - 3 * MIN));
-  return (json.features || []).map((f) => {
-    const a = f.attributes || {};
-    return { code: a.code_achoza, name: a.shem_chenyon || "", address: a.ktovet || "", lat: +a.lat, lon: +a.lon,
-      status: a.status_chenyon, updatedAt: a.tr_status_chenyon, capacity: a.mispar_mekomot_bchenyon, notes: a.hearot_taarif || "" };
-  }).filter((l) => isFinite(l.lat) && isFinite(l.lon));
+// ---- sample data for ?demo: four weeks of made-up checks that end now
+const DEMO_FILL = { assuta: [520, 570, 580, 560, 540, 660, 645], basel: [565, 615, 625, 605, 585, 705, 690] }; // min after noon, Sun..Sat
+function rnd(seed) { let x = Math.sin(seed) * 10000; return x - Math.floor(x); }
+function demoStatus(key, t) {
+  const ev = hourOf(t) >= 12 ? dayStart(t) : dayStart(t) - DAY;
+  const m = Math.floor((t - ev) / MIN) - 720;
+  const fill = DEMO_FILL[key][dowOf(ev)] + Math.round((rnd(ev / DAY + (key === "basel" ? 7 : 0)) - 0.5) * 40);
+  if (m >= fill && m < 1170) return "מלא";
+  if (m >= fill - 35 && m < fill) return "מעט";
+  return "פנוי";
 }
-async function loadLog() {
-  const r = await fetch(logUrl() + (DEMO ? "" : "?t=" + Math.floor(Date.now() / 300000)), { cache: "no-store" });
-  if (r.status === 404) return [];
-  if (!r.ok) throw new Error("HTTP " + r.status);
-  const rows = parseCsv(await r.text());
-  if (DEMO && rows.length) { // slide the sample so it ends now
-    const shift = ilNow() - parseT(rows[rows.length - 1].checked_at) - 5 * MIN;
-    const f = (s) => { const t = parseT(s); if (t == null) return ""; const d = new Date(t + shift - (t + shift) % MIN); return d.toISOString().slice(0, 16); };
-    rows.forEach((r) => { r.checked_at = f(r.checked_at); r.source_time = f(r.source_time); });
+function demoRows(key) {
+  const now = ilNow(), rows = [];
+  for (let t = now - 28 * DAY - (now % (10 * MIN)); t <= now - 4 * MIN; t += (hourOf(t) >= 14 || hourOf(t) < 2 ? 5 : 15) * MIN) {
+    const iso = new Date(t).toISOString().slice(0, 16);
+    rows.push({ checked_at: iso, status: demoStatus(key, t), source_time: iso, source: "gis" });
   }
   return rows;
 }
+async function loadFeed() {
+  const json = await getJson(DEMO ? "demo/lots.json" : FEED_URL);
+  if (json.error) throw new Error(json.error.message || "feed error");
+  if (DEMO) json.features.forEach((f) => {
+    const a = f.attributes; a.tr_status_chenyon = ilNow() - 3 * MIN;
+    const lot = LOTS.find((l) => l.name === (a.shem_chenyon || "").trim());
+    if (lot) a.status_chenyon = demoStatus(lot.key, ilNow() - 3 * MIN);
+  });
+  return (json.features || []).map((f) => {
+    const a = f.attributes || {};
+    return { code: a.code_achoza, name: (a.shem_chenyon || "").trim(), address: (a.ktovet || "").replace(" תל-אביב יפו", ""),
+      lat: +a.lat, lon: +a.lon, status: a.status_chenyon, updatedAt: a.tr_status_chenyon, capacity: a.mispar_mekomot_bchenyon };
+  }).filter((l) => isFinite(l.lat) && isFinite(l.lon));
+}
+async function loadLog(key) {
+  if (DEMO) return demoRows(key);
+  const r = await fetch(dataBase() + key + ".csv?t=" + Math.floor(Date.now() / 120000), { cache: "no-store" });
+  if (r.status === 404) return [];
+  if (!r.ok) throw new Error("HTTP " + r.status);
+  return parseCsv(await r.text());
+}
 
-// ---------------------------------------------------------------- geo
-function distM(a, b) {
-  const R = 6371000, toR = Math.PI / 180, dLat = (b.lat - a.lat) * toR, dLon = (b.lon - a.lon) * toR;
-  const x = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * toR) * Math.cos(b.lat * toR) * Math.sin(dLon / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(x));
-}
-function offset(p, bearingDeg, m) {
-  const R = 6371000, b = bearingDeg * Math.PI / 180;
-  return { lat: p.lat + (m * Math.cos(b)) / R * 180 / Math.PI,
-           lon: p.lon + (m * Math.sin(b)) / (R * Math.cos(p.lat * Math.PI / 180)) * 180 / Math.PI };
-}
-const bearing = (a, b) => (Math.atan2((b.lon - a.lon) * Math.cos(a.lat * Math.PI / 180), b.lat - a.lat) * 180 / Math.PI + 360) % 360;
-const ll = (p) => p.lat.toFixed(6) + "," + p.lon.toFixed(6);
+// ---------------------------------------------------------------- geo helpers
+const KX = 111320 * Math.cos(32.09 * Math.PI / 180), KY = 110540;
+const distM = (a, b) => Math.hypot((a.lon - b.lon) * KX, (a.lat - b.lat) * KY);
+const ll = (p) => (+p.lat).toFixed(6) + "," + (+p.lon).toFixed(6);
 const wazeUrl = (p) => "https://waze.com/ul?ll=" + ll(p) + "&navigate=yes";
 const gmapsUrl = (p) => "https://www.google.com/maps/dir/?api=1&destination=" + ll(p) + "&travelmode=driving";
+const gmapsRoute = (dest, wps) => "https://www.google.com/maps/dir/?api=1&destination=" + ll(dest) + "&waypoints=" + wps.map(ll).join("%7C") + "&travelmode=driving";
+const pt = (a) => ({ lat: a[0], lon: a[1] });
+const walkMin = (m) => Math.max(1, Math.round(m / WALK_M_PER_MIN));
 
-// ---------------------------------------------------------------- render
-let state = { lots: [], rows: [], assuta: null, map: null, layers: null, streets: null };
+// ---------------------------------------------------------------- state
+const S = { geo: null, feed: [], lots: {}, rows: { assuta: [], basel: [] }, spots: [], map: null, layers: null, picking: null, feedError: null };
 
-function renderStatus() {
-  const a = state.assuta, now = ilNow();
-  const pill = $("pill"), facts = $("facts"), stale = $("stale");
-  if (!a) {
-    pill.className = "pill s-unknown"; pill.innerHTML = "No live data";
-    facts.textContent = "The city feed didn't answer. Try Refresh.";
-    stale.hidden = true; return;
-  }
-  const s = st(a.status);
-  pill.className = "pill " + s.cls;
-  pill.innerHTML = ""; pill.append(s.en);
-  const he = document.createElement("span"); he.className = "he"; he.textContent = a.status || ""; pill.append(he);
-  const age = a.updatedAt ? now - a.updatedAt : null;
-  facts.innerHTML = "";
-  const items = [
-    age != null ? "Feed updated " + ago(age) + " (" + hhmmAbs(a.updatedAt) + ")" : "Feed has no timestamp",
-    (a.capacity || 100) + " spaces",
-  ];
-  const disc = /(\d+)\s*%/.exec(a.notes); if (disc && a.notes.includes("הנח")) items.push(disc[1] + "% off for residents");
-  for (const t of items) { const sp = document.createElement("span"); sp.textContent = t; facts.append(sp); }
-  if (age != null && age > STALE_MIN * MIN) {
-    stale.hidden = false;
-    stale.textContent = "This status is " + ago(age).replace(" ago", "") + " old, so Assuta's sensor may be offline. Treat it as unknown and check Plan B.";
-  } else stale.hidden = true;
-  $("waze").href = wazeUrl(a); $("gmaps").href = gmapsUrl(a);
-}
+function loadSpots() { try { S.spots = JSON.parse(localStorage.getItem(SPOTS_KEY) || "[]"); } catch (e) { S.spots = []; } }
+function saveSpots() { try { localStorage.setItem(SPOTS_KEY, JSON.stringify(S.spots)); } catch (e) { /* private mode */ } }
 
-function renderTonight() {
+function lotLive(key) {
+  // Live status for one of our lots, with staleness applied.
+  const g = S.geo && S.geo.lots[key], name = LOTS.find((l) => l.key === key).name;
+  const f = S.feed.find((x) => x.name === name) || null;
   const now = ilNow();
-  let ev = eveningOf(now);
-  if (ev == null) ev = dayStart(now); // daytime: talk about this evening
-  const wd = new Date(ev).getUTCDay();
-  const evs = evenings(state.rows);
-  const p = predict(evs, wd, ev);
-  $("tonight-title").textContent = (hourOf(now) < EVENING_END_H ? "Tonight" : "This evening") + " · " + DAYS[wd];
-  const body = $("tonight-body"); body.innerHTML = "";
-  if (!p) {
-    const usable = [...evs.values()].filter((r) => r.usable).length;
-    const first = state.rows.length ? state.rows[0].checked_at.slice(0, 10) : null;
-    body.innerHTML = '<p class="note"></p>';
-    body.firstChild.textContent = first
-      ? "Still learning. Checks started " + first + " and " + usable + " full evening" + (usable === 1 ? " has" : "s have") +
-        " been recorded so far. A prediction appears after two evenings where Assuta filled up."
-      : "No history yet. The checker saves Assuta's status every 10 minutes; a prediction appears after a couple of evenings.";
-    return;
-  }
-  const grid = document.createElement("div"); grid.className = "tonight-grid";
-  const cell = (k, v, key) => { const d = document.createElement("div"); d.innerHTML = '<span class="k"></span><span class="v' + (key ? " key" : "") + '"></span>'; d.children[0].textContent = k; d.children[1].textContent = v; return d; };
-  grid.append(cell("Park by", hhmm(p.arriveBy), true), cell("Few spaces", p.fewMedian != null ? "~" + hhmm(p.fewMedian) : "–"), cell("Usually full", "~" + hhmm(p.fullMedian)));
-  body.append(grid);
-  const n = document.createElement("p"); n.className = "note";
-  n.textContent = (p.scope === "weekday" ? "Based on " + p.filled + " of " + p.evenings + " recent " + DAYS[wd] + "s that filled" : "Not enough " + DAYS[wd] + "s yet, so this uses the last three weeks: " + p.filled + " of " + p.evenings + " evenings filled") +
-    ". Earliest it filled: " + hhmm(p.fullEarliest) + ".";
-  body.append(n);
-  const cur = state.assuta && state.assuta.status;
-  if (cur !== "מלא") {
-    const mins = minAfterNoon(now, ev);
-    if (mins >= 0 && mins < p.arriveBy + 60) {
-      const left = p.arriveBy - mins;
-      const go = document.createElement("p"); go.className = left <= 20 ? "warn" : "note";
-      go.textContent = left > 0 ? "You have about " + fmtDur(left) + " before you should be parked." : "You're past the usual park-by time. Go now if it still shows room.";
-      body.append(go);
+  const age = f && f.updatedAt ? now - f.updatedAt : null;
+  const stale = age == null || age > STALE_MIN * MIN;
+  return { key, name, feed: f, status: f && !stale ? f.status : "unknown", rawStatus: f && f.status, age, stale,
+    pos: g ? { lat: g.lat, lon: g.lon } : f ? { lat: f.lat, lon: f.lon } : null, capacity: g && g.capacity };
+}
+function tonightEvening() { const now = ilNow(); return eveningOf(now) ?? dayStart(now); }
+function lotPrediction(key) { const ev = tonightEvening(); return predict(evenings(S.rows[key]), dowOf(ev), ev); }
+
+// ---------------------------------------------------------------- render: decision
+function renderDecision() {
+  const A = lotLive("assuta"), B = lotLive("basel"), now = ilNow();
+  const verdict = $("verdict"), why = $("why"), btns = $("go-btns"); btns.innerHTML = "";
+  const navBtns = (p, label) => {
+    const w = el("a", "btn primary", label); w.href = wazeUrl(p); w.target = "_blank"; w.rel = "noopener";
+    const g = el("a", "btn", "Google Maps"); g.href = gmapsUrl(p); g.target = "_blank"; g.rel = "noopener";
+    btns.append(w, g);
+  };
+  const openCurbs = (S.geo ? S.geo.curbs : []).filter((c) => c.who === "all" && curbOpen(c, now) && c.walk_m <= 400).length +
+                    S.spots.filter((s) => spotOpen(s, now)).length;
+  let target = null;
+  if (hasRoom(A.status)) {
+    target = "assuta";
+    verdict.textContent = "Go to Assuta";
+    why.textContent = A.status === "מעט" ? "Few spaces left, so go now. Basel: " + st(B.status).en.toLowerCase() + "." : "Assuta has room.";
+    navBtns(A.pos, "Waze to Assuta");
+  } else if (hasRoom(B.status)) {
+    target = "basel";
+    verdict.textContent = "Go to Basel";
+    why.textContent = (A.status === "מלא" ? "Assuta is full. " : "No live data for Assuta. ") + (B.status === "מעט" ? "Basel has few spaces, so go now." : "Basel has room.");
+    navBtns(B.pos, "Waze to Basel");
+  } else if (A.status === "unknown" && B.status === "unknown") {
+    target = "assuta";
+    verdict.textContent = "Try Assuta";
+    why.textContent = S.feedError ? "The city feed isn't answering right now. Assuta is still your best bet." : "Neither lot has a fresh status. Assuta is still your best bet.";
+    if (A.pos) navBtns(A.pos, "Waze to Assuta");
+  } else {
+    verdict.textContent = "Drive the street loop";
+    why.textContent = "Both lots are full." + (openCurbs ? " " + openCurbs + " curb spot" + (openCurbs > 1 ? "s are" : " is") + " open nearby right now." : "");
+    if (S.geo) {
+      const r = S.geo.route.waypoints;
+      const a = el("a", "btn primary", "Drive the route"); a.href = gmapsRoute(pt(r.yericho), [pt(r.hyrcanus), pt(r.binnun), pt(r.harnevo)]); a.target = "_blank"; a.rel = "noopener";
+      const c = el("a", "btn", "See curb spots"); c.href = "#curbs";
+      btns.append(a, c);
     }
   }
+  // Timing: tonight's park-by for the target lot (or Assuta).
+  const timing = $("timing"); const key = target || "assuta";
+  const p = lotPrediction(key), ev = tonightEvening();
+  timing.hidden = false;
+  if (!p) {
+    const n = [...evenings(S.rows.assuta).values()].filter((r) => r.usable).length;
+    timing.textContent = n ? "Still learning when the lots fill (" + n + " evening" + (n === 1 ? "" : "s") + " recorded so far)." : "Still learning when the lots fill. Times appear after a couple of evenings.";
+    return;
+  }
+  const mins = minAfterNoon(now, ev), left = p.arriveBy - mins;
+  const name = key === "assuta" ? "Assuta" : "Basel";
+  timing.innerHTML = "";
+  timing.append(name + " usually fills around ", el("b", null, hhmm(p.fullMedian)), " on " + (p.scope === "weekday" ? DAYS[dowOf(ev)] + "s" : "recent evenings") + ". ");
+  if (lotLive(key).status === "מלא") timing.append("It's already full tonight.");
+  else if (eveningOf(now) == null && hourOf(now) >= EVENING_END_H && mins < 0) timing.append("Park by ", el("b", null, hhmm(p.arriveBy)), " this evening.");
+  else if (left > 0) timing.append("Park by ", el("b", null, hhmm(p.arriveBy)), ", in " + fmtDur(left) + ".");
+  else if (mins < p.fullMedian) timing.append("It still has room, but you're past the park-by time (" + hhmm(p.arriveBy) + "), so go now.");
+  else timing.append("It still has room tonight, later than usual. Go now.");
 }
-const fmtDur = (m) => (m >= 60 ? Math.floor(m / 60) + " h " : "") + (m % 60) + " min";
 
-function renderStrip() {
-  const now = ilNow(), from = now - DAY, strip = $("strip"); strip.innerHTML = "";
-  const pts = state.rows.map(effective).filter((e) => e && e.t >= from - 30 * MIN).sort((a, b) => a.t - b.t);
-  const segs = []; let cursor = from;
-  pts.forEach((p, i) => {
-    const start = Math.max(p.t, from); const next = i + 1 < pts.length ? pts[i + 1].t : now;
-    const end = Math.min(next, p.t + 30 * MIN, now);
-    if (start > cursor) segs.push([cursor, start, "unknown"]);
-    if (end > start) segs.push([start, end, p.s]);
-    cursor = Math.max(cursor, end);
+// ---------------------------------------------------------------- render: lot cards
+function renderLots() {
+  const box = $("lots"); box.innerHTML = "";
+  for (const meta of LOTS) {
+    const L = lotLive(meta.key), s = st(L.status), p = lotPrediction(meta.key);
+    const card = el("div", "lot" + (meta.key === "assuta" ? " first" : ""));
+    const top = el("div", "top"); top.append(el("span", "name", meta.en), el("span", "rank", meta.rank));
+    const pill = el("span", "pill " + s.cls, s.en);
+    const metaBox = el("div", "meta");
+    const line = (label, val) => { const d = el("div"); d.append(label + " "); d.append(el("b", null, val)); return d; };
+    if (L.age != null) metaBox.append(el("div", null, "Updated " + ago(L.age)));
+    metaBox.append(p ? line("Usually full", "~" + hhmm(p.fullMedian)) : el("div", null, "Fill time: learning"));
+    if (L.capacity) metaBox.append(el("div", null, L.capacity + " spaces · free nights for residents"));
+    card.append(top, el("div", null), metaBox);
+    card.children[1].append(pill);
+    if (L.stale && L.feed) card.append(el("div", "stale", "Status is " + ago(L.age).replace(" ago", "") + " old (" + st(L.rawStatus).en.toLowerCase() + "); the sensor may be stuck."));
+    if (L.pos) {
+      const links = el("div", "links");
+      const w = el("a", "btn small", "Waze"); w.href = wazeUrl(L.pos); w.target = "_blank"; w.rel = "noopener";
+      const g = el("a", "btn small", "Maps"); g.href = gmapsUrl(L.pos); g.target = "_blank"; g.rel = "noopener";
+      links.append(w, g); card.append(links);
+    }
+    box.append(card);
+  }
+}
+
+// ---------------------------------------------------------------- render: route steps
+function renderSteps() {
+  const ol = $("steps"); ol.innerHTML = ""; if (!S.geo) return;
+  const legs = S.geo.route.legs;
+  legs.forEach((l) => {
+    if (l.id === "binnun_top") return; // folded into the Bin Nun step below
+    const li = el("li", l.part === "loop" ? "loop" : "");
+    const t = el("span", "st"); t.append(l.turn + " " + l.en + " · ");
+    const he = el("bdi", "he", l.street); he.dir = "rtl"; t.append(he);
+    if (l.search) t.append(el("span", "tag", "Look for parking"));
+    const sub = el("span", "sub");
+    if (l.id === "gabirol") sub.textContent = "Heading south";
+    else if (l.id === "hyrcanus") sub.textContent = "One-way west";
+    else if (l.id === "binnun") sub.textContent = "One-way south, all the way to Jabotinsky. The Basel lot (Ashtori HaParhi 5) is just west of it.";
+    else if (l.id === "jabotinsky") sub.textContent = "One short block east. Assuta is behind you at Jabotinsky 62.";
+    else if (l.id === "harnevo") sub.textContent = "North toward the synagogue";
+    else if (l.id === "gilad") sub.textContent = "Short block";
+    else if (l.id === "eingedi") sub.textContent = "Short block";
+    else if (l.id === "yericho") sub.textContent = "Past " + (S.geo.synagogue ? "the " + S.geo.synagogue.name + " synagogue" : "the synagogue") + ", back to Bin Nun. Repeat from step 3.";
+    li.append(t, sub);
+    if (l.id === "binnun") li.querySelector(".st").firstChild.textContent = "Turn left onto Yehoshua Bin Nun · ";
+    ol.append(li);
   });
-  if (cursor < now) segs.push([cursor, now, "unknown"]);
-  for (const [a, b, s] of segs) { const sp = document.createElement("span"); sp.style.flex = String(b - a); sp.style.background = st(s).color; strip.append(sp); }
-  const axis = $("strip-axis"); axis.innerHTML = "";
-  for (let i = 0; i <= 4; i++) { const sp = document.createElement("span"); sp.textContent = i === 4 ? "now" : hhmmAbs(from + i * DAY / 4); axis.append(sp); }
+  const r = S.geo.route.waypoints;
+  $("drive-route").href = gmapsRoute(pt(r.yericho), [pt(r.hyrcanus), pt(r.binnun), pt(r.harnevo)]);
+  $("drive-lap").href = gmapsRoute(pt(r.yericho), [pt(r.binnun), pt(r.harnevo)]);
+}
+
+// ---------------------------------------------------------------- render: curbs and my spots
+function curbStreet(c) { return c.street_en || c.street || "Curb"; }
+const NEAR_CURB_M = 450;
+let showFarCurbs = false;
+function titleWithHe(en, he) {
+  const t = el("span", "t"); if (en) t.append(en);
+  if (he && he !== en) { if (en) t.append(" "); const h = el("bdi", en ? "he" : null, he); h.dir = "rtl"; t.append(h); }
+  return t;
+}
+function renderCurbs() {
+  const ul = $("curb-list"); ul.innerHTML = ""; if (!S.geo) return;
+  const now = ilNow();
+  const curbs = S.geo.curbs.map((c) => ({ c, open: c.who === "all" && curbOpen(c, now) }))
+    .sort((x, y) => (x.c.who === "all" ? 0 : 1) - (y.c.who === "all" ? 0 : 1) || (y.open - x.open) || x.c.walk_m - y.c.walk_m);
+  const near = curbs.filter((x) => x.c.walk_m <= NEAR_CURB_M), far = curbs.filter((x) => x.c.walk_m > NEAR_CURB_M);
+  if (!curbs.length) ul.append(el("li", "note", "No usable loading-zone signs on record near the lots."));
+  else if (!near.length) ul.append(el("li", "note", "None within a 6-minute walk of Assuta."));
+  for (const { c, open } of showFarCurbs ? near.concat(far) : near) {
+    const li = el("li", "item");
+    const t = titleWithHe(curbStreet(c), c.street_en ? c.street : "");
+    const m = el("span", "m", walkMin(c.walk_m) + " min walk from Assuta · " + c.route_m + " m from the loop");
+    const r = el("span", "r");
+    let chip;
+    if (c.who !== "all") chip = el("span", "chip s-few", "Check the sign");
+    else {
+      const u = nextChange((t2) => curbOpen(c, t2), now);
+      chip = el("span", "chip " + (open ? "s-free" : "s-unknown"), open ? "Open until " + whenText(now, u) : "Opens " + whenText(now, u));
+    }
+    const go = el("a", "go", "Navigate"); go.href = wazeUrl(c); go.target = "_blank"; go.rel = "noopener";
+    r.append(chip, go);
+    const d = el("details"); d.append(el("summary", null, c.who === "all" ? "Loading hours: " + windowsText(c.windows) : "The sign doesn't say who may park outside the loading hours"));
+    const p = el("p", null, c.text); p.lang = "he"; d.append(p);
+    li.append(t, r, m, d); ul.append(li);
+  }
+  if (far.length) {
+    const li = el("li"); const b = el("button", "btn small more", showFarCurbs ? "Show only the close ones" : "Show " + far.length + " farther (7–10 min walk)"); b.type = "button";
+    b.addEventListener("click", () => { showFarCurbs = !showFarCurbs; renderCurbs(); });
+    li.append(b); ul.append(li);
+  }
+  renderMySpots();
+}
+function windowsText(ws) {
+  const dn = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const days = (d) => d.length === 1 ? dn[d[0]] : dn[d[0]] + "–" + dn[d[d.length - 1]];
+  return ws.map((w) => days(w.days) + " " + w.from + "–" + w.to).join(", ");
+}
+function renderMySpots() {
+  const ul = $("my-list"); ul.innerHTML = ""; const now = ilNow();
+  $("my-empty").hidden = S.spots.length > 0;
+  S.spots.forEach((s, i) => {
+    const open = spotOpen(s, now), u = nextChange((t2) => spotOpen(s, t2), now);
+    const li = el("li", "item");
+    const t = el("span", "t", s.name || "My spot");
+    const dayTxt = { all: "every day", "0-4": "Sun–Thu (all day Fri–Sat)", "0-5": "Sun–Fri (all day Sat)" }[s.days] || "";
+    const m = el("span", "m", "Allowed " + s.from + "–" + s.to + ", " + dayTxt);
+    const r = el("span", "r");
+    r.append(el("span", "chip " + (open ? "s-free" : "s-unknown"), open ? "Open until " + whenText(now, u) : "Opens " + whenText(now, u)));
+    const del = el("button", "btn small", "Remove"); del.type = "button";
+    del.addEventListener("click", () => { S.spots.splice(i, 1); saveSpots(); renderCurbs(); renderMap(); renderDecision(); });
+    r.append(del);
+    li.append(t, r, m); ul.append(li);
+  });
+}
+
+// ---------------------------------------------------------------- render: map
+function renderMap() {
+  if (!S.geo || typeof L === "undefined") { if (typeof L === "undefined") $("map").textContent = "Map didn't load. Check your connection."; return; }
+  const now = ilNow();
+  if (!S.map) {
+    S.map = L.map("map", { zoomControl: false, tap: true }).setView([32.0895, 34.7808], 16);
+    L.control.zoom({ position: "bottomright" }).addTo(S.map);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(S.map);
+    S.map.on("click", onMapClick);
+    S.layers = L.layerGroup().addTo(S.map);
+    const pts = S.geo.route.legs.filter((l) => l.part === "loop" || l.id === "hyrcanus").flatMap((l) => l.path).concat(Object.values(S.geo.lots).map((l) => [l.lat, l.lon]));
+    S.map.fitBounds(L.latLngBounds(pts).pad(0.08), { maxZoom: 17 });
+  }
+  S.layers.clearLayers();
+  const sign = cssVar("--sign") || "#1b4fa0";
+  for (const leg of S.geo.route.legs) {
+    const loop = leg.part === "loop";
+    L.polyline(leg.path, { color: sign, weight: loop ? 6 : 4, opacity: loop ? .85 : .55, dashArray: loop ? null : "8 8", interactive: false }).addTo(S.layers);
+    // direction arrows along each leg
+    for (let i = 1; i < leg.path.length; i += Math.max(1, Math.floor(leg.path.length / 2))) {
+      const a = leg.path[i - 1], b = leg.path[i];
+      const ang = Math.atan2((b[1] - a[1]) * KX, (b[0] - a[0]) * KY) * 180 / Math.PI;
+      const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+      L.marker(mid, { interactive: false, icon: L.divIcon({ className: "mk-arrow", html: '<span style="display:block;transform:rotate(' + (ang - 90) + 'deg)">➤</span>', iconSize: [16, 16] }) }).addTo(S.layers);
+    }
+  }
+  if (S.geo.synagogue) L.marker([S.geo.synagogue.lat, S.geo.synagogue.lon], { title: S.geo.synagogue.name, icon: L.divIcon({ className: "mk-syn", html: "✡", iconSize: [20, 20] }) })
+    .bindPopup(S.geo.synagogue.name + " · " + S.geo.synagogue.address).addTo(S.layers);
+  for (const c of S.geo.curbs) {
+    const color = c.who !== "all" ? cssVar("--few") : curbOpen(c, now) ? cssVar("--free") : cssVar("--closed");
+    const m = L.marker([c.lat, c.lon], { title: curbStreet(c), icon: L.divIcon({ className: "mk-curb", html: "", iconSize: [14, 14] }) })
+      .bindPopup(curbStreet(c) + "<br>" + (c.who === "all" ? "Loading " + windowsText(c.windows) + "; open to all otherwise" : "Check the sign")).addTo(S.layers);
+    m.getElement().style.background = color;
+  }
+  for (const s of S.spots) {
+    L.circleMarker([s.lat, s.lon], { radius: 8, color: cssVar("--surface"), weight: 2, fillColor: cssVar("--basel"), fillOpacity: spotOpen(s, now) ? 1 : .45 })
+      .bindPopup((s.name || "My spot") + "<br>Allowed " + s.from + "–" + s.to).addTo(S.layers);
+  }
+  LOTS.forEach((meta, i) => {
+    const Lv = lotLive(meta.key); if (!Lv.pos) return;
+    const m = L.marker([Lv.pos.lat, Lv.pos.lon], { title: meta.en, zIndexOffset: 500, icon: L.divIcon({ className: "mk-lot", html: meta.en[0], iconSize: [28, 28] }) })
+      .bindPopup(meta.en + " · " + st(Lv.status).en).addTo(S.layers);
+    m.getElement().style.background = Lv.status === "unknown" ? cssVar("--closed") : cssVar(st(Lv.status).color);
+  });
+  if (S.picking && S.picking.lat != null) L.circleMarker([S.picking.lat, S.picking.lon], { radius: 10, color: cssVar("--basel"), weight: 3, fillOpacity: .2 }).addTo(S.layers);
+}
+
+// ---------------------------------------------------------------- add-spot flow
+function onMapClick(e) {
+  if (!S.picking) return;
+  S.picking.lat = +e.latlng.lat.toFixed(6); S.picking.lon = +e.latlng.lng.toFixed(6);
+  $("spot-save").disabled = false; $("pick-hint").textContent = "Spot placed. Tap again to move it.";
+  renderMap();
+}
+function startPick() {
+  S.picking = { lat: null, lon: null };
+  $("spot-form").hidden = false; $("spot-add").hidden = true; $("spot-save").disabled = true;
+  $("pick-hint").textContent = "Tap the map where the curb is.";
+  $("app").classList.add("picking");
+  $("map").scrollIntoView({ behavior: "smooth", block: "center" });
+}
+function endPick() { S.picking = null; $("spot-form").hidden = true; $("spot-add").hidden = false; $("app").classList.remove("picking"); renderMap(); }
+$("spot-add").addEventListener("click", startPick);
+$("spot-cancel").addEventListener("click", endPick);
+$("spot-save").addEventListener("click", () => {
+  if (!S.picking || S.picking.lat == null) return;
+  S.spots.push({ lat: S.picking.lat, lon: S.picking.lon, name: $("spot-name").value.trim(), from: $("spot-from").value || "19:00", to: $("spot-to").value || "07:00", days: $("spot-days").value });
+  saveSpots(); $("spot-name").value = ""; endPick(); renderCurbs(); renderDecision();
+});
+
+// ---------------------------------------------------------------- render: tonight, chart, strips
+function renderTonight() {
+  const now = ilNow(), ev = tonightEvening();
+  $("tonight-title").textContent = (hourOf(now) < EVENING_END_H ? "Tonight" : "This evening") + " · " + DAYS[dowOf(ev)];
+  const body = $("tonight-body"); body.innerHTML = "";
+  const preds = LOTS.map((m) => [m, lotPrediction(m.key)]);
+  if (!preds.some(([, p]) => p)) {
+    const n = [...evenings(S.rows.assuta).values()].filter((r) => r.usable).length;
+    const first = S.rows.assuta.length ? S.rows.assuta[0].checked_at.slice(0, 10) : null;
+    body.append(el("p", "note", first
+      ? "Still learning. Checks started " + first + "; " + n + " full evening" + (n === 1 ? " has" : "s have") + " been recorded. Times appear after two evenings where a lot filled up."
+      : "No history yet. The checker saves both lots every 5 minutes in the evening."));
+    return;
+  }
+  const tbl = el("table", "tonight");
+  const head = el("tr"); ["", "Few spaces", "Usually full", "Park by"].forEach((h) => head.append(el("th", null, h)));
+  tbl.append(head);
+  for (const [m, p] of preds) {
+    const tr = el("tr");
+    tr.append(el("td", null, m.en), el("td", null, p && p.fewMedian != null ? "~" + hhmm(p.fewMedian) : "–"), el("td", null, p ? "~" + hhmm(p.fullMedian) : "learning"));
+    const k = el("td", "key", p ? hhmm(p.arriveBy) : "–"); tr.append(k); tbl.append(tr);
+  }
+  body.append(tbl);
+  const pa = preds[0][1];
+  if (pa) body.append(el("p", "note", (pa.scope === "weekday" ? "From " + pa.filled + " of " + pa.evenings + " recent " + DAYS[dowOf(ev)] + "s" : "Not enough " + DAYS[dowOf(ev)] + "s yet, so this uses the last three weeks") + ". Earliest Assuta filled: " + hhmm(pa.fullEarliest) + ". Park-by leaves a " + LEAD_MIN + "-minute margin."));
 }
 
 function renderWeek() {
-  const evs = evenings(state.rows), now = ilNow(), today = dayStart(now) + DAY;
-  const tonightWd = new Date(eveningOf(now) ?? dayStart(now)).getUTCDay();
+  const now = ilNow(), today = dayStart(now) + DAY, tonightWd = dowOf(tonightEvening());
+  const evA = evenings(S.rows.assuta), evB = evenings(S.rows.basel);
   const X0 = 240, X1 = 840; // 16:00 .. 02:00 in minutes after noon
-  const W = 360, L = 40, R = 46, rowH = 28, top = 8, H = top + rowH * 7 + 22;
-  const x = (m) => L + (Math.min(Math.max(m, X0), X1) - X0) / (X1 - X0) * (W - L - R);
-  let s = '<svg viewBox="0 0 ' + W + " " + H + '" width="100%" role="img" aria-label="Usual fill time by day of week">';
+  const W = 360, Lm = 40, R = 52, rowH = 30, top = 6, H = top + rowH * 7 + 22;
+  const x = (m) => Lm + (Math.min(Math.max(m, X0), X1) - X0) / (X1 - X0) * (W - Lm - R);
+  let s = '<svg viewBox="0 0 ' + W + " " + H + '" width="100%" role="img" aria-label="Usual fill time by day for Assuta and Basel">';
   for (let m = X0; m <= X1; m += 120) s += '<line class="grid" x1="' + x(m) + '" x2="' + x(m) + '" y1="' + top + '" y2="' + (top + rowH * 7) + '"/><text x="' + x(m) + '" y="' + (H - 6) + '" text-anchor="middle">' + hhmm(m) + "</text>";
   for (let wd = 0; wd < 7; wd++) {
-    const y = top + wd * rowH + rowH / 2, p = predict(evs, wd, today);
-    const isToday = wd === tonightWd;
+    const y = top + wd * rowH + rowH / 2, isToday = wd === tonightWd;
+    const pa = predict(evA, wd, today), pb = predict(evB, wd, today);
     if (isToday) s += '<rect class="today-row" x="0" y="' + (y - rowH / 2) + '" width="' + W + '" height="' + rowH + '" rx="6"/>';
-    s += '<text class="day' + (isToday ? " today" : "") + '" x="8" y="' + (y + 4) + '">' + DAYS[wd].slice(0, 3) + "</text>";
-    if (p && p.scope === "weekday") {
-      s += '<line class="range" x1="' + x(p.fullEarliest) + '" x2="' + x(p.fullLatest) + '" y1="' + y + '" y2="' + y + '"/>';
-      if (p.fewMedian != null) s += '<circle class="fewtick" cx="' + x(p.fewMedian) + '" cy="' + y + '" r="5"/>';
-      s += '<circle class="dot" cx="' + x(p.fullMedian) + '" cy="' + y + '" r="6"/>';
-      s += '<text x="' + (W - 4) + '" y="' + (y + 4) + '" text-anchor="end">' + hhmm(p.fullMedian) + "</text>";
-    } else {
-      s += '<text class="nodata" x="' + x(X0) + '" y="' + (y + 4) + '" dx="6">not enough ' + DAYS[wd].slice(0, 3) + "s yet</text>";
-    }
+    s += '<text class="day' + (isToday ? " today" : "") + '" x="6" y="' + (y + 4) + '">' + DAYS[wd].slice(0, 3) + "</text>";
+    const okA = pa && pa.scope === "weekday", okB = pb && pb.scope === "weekday";
+    if (!okA && !okB) { s += '<text class="nodata" x="' + x(X0) + '" y="' + (y + 4) + '" dx="6">not enough ' + DAYS[wd].slice(0, 3) + "s yet</text>"; continue; }
+    if (okA) s += '<line class="a-range" x1="' + x(pa.fullEarliest) + '" x2="' + x(pa.fullLatest) + '" y1="' + (y - 4) + '" y2="' + (y - 4) + '"/><circle class="a-dot" cx="' + x(pa.fullMedian) + '" cy="' + (y - 4) + '" r="5.5"/><text class="a-lbl" x="' + (W - 2) + '" y="' + (y - 1) + '" text-anchor="end">' + hhmm(pa.fullMedian) + "</text>";
+    if (okB) s += '<line class="b-range" x1="' + x(pb.fullEarliest) + '" x2="' + x(pb.fullLatest) + '" y1="' + (y + 5) + '" y2="' + (y + 5) + '"/><rect class="b-dot" x="' + (x(pb.fullMedian) - 4.5) + '" y="' + (y + 0.5) + '" width="9" height="9" rx="1.5"/><text class="b-lbl" x="' + (W - 2) + '" y="' + (y + 11) + '" text-anchor="end">' + hhmm(pb.fullMedian) + "</text>";
   }
   $("week").innerHTML = s + "</svg>";
 }
 
+function renderStrips() {
+  const now = ilNow(), from = now - DAY, box = $("strips"); box.innerHTML = "";
+  for (const meta of LOTS) {
+    const row = el("div", "strip-row"); row.append(el("span", null, meta.en));
+    const strip = el("div", "strip"); strip.setAttribute("role", "img"); strip.setAttribute("aria-label", meta.en + " status over the last 24 hours");
+    const pts = S.rows[meta.key].map(effective).filter((e) => e && e.t >= from - 30 * MIN).sort((a, b) => a.t - b.t);
+    let cursor = from; const segs = [];
+    pts.forEach((p, i) => {
+      const start = Math.max(p.t, from), next = i + 1 < pts.length ? pts[i + 1].t : now;
+      const end = Math.min(next, p.t + 30 * MIN, now);
+      if (start > cursor) segs.push([cursor, start, "unknown"]);
+      if (end > start) segs.push([start, end, p.s]);
+      cursor = Math.max(cursor, end);
+    });
+    if (cursor < now) segs.push([cursor, now, "unknown"]);
+    for (const [a, b, s] of segs) { const sp = el("span"); sp.style.flex = String(b - a); sp.style.background = "var(" + st(s).color + ")"; strip.append(sp); }
+    row.append(strip); box.append(row);
+  }
+  const axis = $("strip-axis"); axis.innerHTML = "";
+  for (let i = 0; i <= 4; i++) axis.append(el("span", null, i === 4 ? "now" : hhmmAbs(from + i * DAY / 4)));
+}
+
+// ---------------------------------------------------------------- render: plan B, rent, health
+function navItem(title, he, parts, chipCls, chipText, pos) {
+  // parts: array of strings; Hebrew pieces are passed as {he: "..."} so they render in their own direction.
+  const li = el("li", "item");
+  const t = titleWithHe(title, he);
+  const r = el("span", "r");
+  if (chipText) r.append(el("span", "chip " + chipCls, chipText));
+  const go = el("a", "go", "Navigate"); go.href = wazeUrl(pos); go.target = "_blank"; go.rel = "noopener"; r.append(go);
+  const m = el("span", "m");
+  parts.filter(Boolean).forEach((p, i) => {
+    if (i) m.append(" · ");
+    if (typeof p === "string") m.append(p); else { const b = el("bdi", null, p.he); b.dir = "rtl"; m.append(b); }
+  });
+  li.append(t, r, m);
+  return li;
+}
 function renderPlanB() {
-  const a = state.assuta, list = $("planb"); list.innerHTML = "";
-  if (!a) { list.innerHTML = '<li class="note">Needs the live feed. Try Refresh.</li>'; return; }
-  let near = state.lots.filter((l) => l !== a).map((l) => ({ ...l, d: distM(a, l) })).sort((x, y) => x.d - y.d);
-  const within = near.filter((l) => l.d <= PLANB_RADIUS_M);
-  const shown = (within.length ? within : near.slice(0, 3)).slice(0, 5);
-  if (!within.length) { const li = document.createElement("li"); li.className = "note"; li.textContent = "No other Ahuzot lot within a 5-minute walk; these are the closest."; list.append(li); }
-  for (const l of shown) {
-    const li = document.createElement("li"); li.className = "lot";
-    const s = st(l.status), walk = Math.max(1, Math.round(l.d * DETOUR / WALK_M_PER_MIN));
-    const fresh = l.updatedAt && ilNow() - l.updatedAt > STALE_MIN * MIN ? " · status " + ago(ilNow() - l.updatedAt).replace(" ago", "") + " old" : "";
-    li.innerHTML = '<span class="name"></span><span class="chip ' + s.cls + '"></span><span class="meta"></span><a class="go" target="_blank" rel="noopener">Navigate</a>';
-    li.querySelector(".name").textContent = l.name;
-    li.querySelector(".chip").textContent = s.en;
-    li.querySelector(".meta").textContent = "~" + walk + " min walk · " + Math.round(l.d) + " m" + (l.capacity ? " · " + l.capacity + " spaces" : "") + fresh;
-    li.querySelector(".go").href = wazeUrl(l);
-    list.append(li);
+  const ul = $("planb"); ul.innerHTML = ""; const now = ilNow();
+  const A = lotLive("assuta"); const home = A.pos || { lat: 32.0883, lon: 34.7799 };
+  const ours = new Set(LOTS.map((l) => l.name));
+  const lots = S.feed.filter((l) => !ours.has(l.name)).map((l) => ({ ...l, d: distM(home, l) })).filter((l) => l.d <= PLANB_RADIUS_M).sort((a, b) => a.d - b.d);
+  for (const l of lots) {
+    const stale = !l.updatedAt || now - l.updatedAt > STALE_MIN * MIN;
+    const s = st(stale ? "unknown" : l.status);
+    const addr = l.address && !l.address.startsWith(l.name) ? { he: l.address } : null;
+    ul.append(navItem("", l.name, ["Ahuzot HaHof lot", walkMin(l.d) + " min walk", addr], s.cls, s.en, l));
   }
-}
-
-// ---------------------------------------------------------------- street loop
-async function loadStreets(c) {
-  const q = '[out:json][timeout:20];way(around:320,' + c.lat + "," + c.lon + ')[highway~"^(residential|living_street|unclassified|tertiary)$"];out geom;';
-  const json = await getJson(OVERPASS_URL, { method: "POST", body: "data=" + encodeURIComponent(q), headers: { "Content-Type": "application/x-www-form-urlencoded" } });
-  return (json.elements || []).filter((w) => w.geometry && w.geometry.length > 1)
-    .map((w) => ({ name: (w.tags && (w.tags["name:en"] || w.tags.name)) || "", pts: w.geometry.map((g) => ({ lat: g.lat, lon: g.lon })) }));
-}
-function pickStops(c, streets) {
-  const stops = [];
-  for (const b of [30, 150, 270]) {
-    const target = offset(c, b, LOOP_RADIUS_M);
-    let best = null, bestD = Infinity;
-    if (streets) for (const w of streets) for (const p of w.pts) {
-      const dc = distM(c, p); if (dc < 110 || dc > 300) continue;
-      const d = distM(target, p); if (d < bestD) { bestD = d; best = { ...p, street: w.name }; }
+  for (const n of (S.geo ? S.geo.night_lots : []).filter((n) => n.kind.startsWith("School"))) {
+    let chipCls = "s-unknown", chip = "";
+    if (n.hours) {
+      const [f, to] = n.hours.split("–"), w = { days: [0, 1, 2, 3, 4, 5, 6], from: f, to };
+      const open = inWindow(w, now);
+      chip = open ? "Open until " + to : "Opens " + f; chipCls = open ? "s-free" : "s-unknown";
     }
-    stops.push(best && bestD < 160 ? best : { ...target, street: "" });
+    ul.append(navItem("", n.name, ["School yard for residents at night", n.hours ? n.hours : null, n.spaces ? n.spaces + " spaces" : null, walkMin(n.walk_m) + " min walk", { he: n.address }, n.detail], chipCls, chip, n));
   }
-  return stops.sort((p, q) => bearing(c, p) - bearing(c, q));
+  if (!ul.children.length) ul.append(el("li", "note", "No other lots on record within a short walk."));
 }
-function bestDestination() {
-  const a = state.assuta; if (!a) return null;
-  if (a.status !== "מלא") return a;
-  const alt = state.lots.filter((l) => l !== a && (l.status === "פנוי" || l.status === "מעט"))
-    .map((l) => ({ l, d: distM(a, l) })).filter((x) => x.d <= PLANB_RADIUS_M * 1.5).sort((x, y) => x.d - y.d)[0];
-  return alt ? alt.l : a;
+function renderRent() {
+  const ul = $("rent"); ul.innerHTML = "";
+  for (const n of (S.geo ? S.geo.night_lots : []).filter((n) => n.kind.startsWith("Private"))) {
+    ul.append(navItem("", n.name, ["Monthly night subscription", n.hours, walkMin(n.walk_m) + " min walk", { he: n.address }, n.phone ? { he: n.phone } : null], "s-free", n.detail, n));
+  }
+  if (!ul.children.length) ul.append(el("li", "note", "No night subscriptions on record nearby."));
 }
-function renderLoop() {
-  const a = state.assuta; if (!a || typeof L === "undefined") { $("loop-note").textContent = a ? "Map didn't load." : "Needs the live feed to place the loop."; return; }
-  const dest = bestDestination();
-  const stops = pickStops(a, state.streets);
-  $("loop").href = "https://www.google.com/maps/dir/?api=1&destination=" + ll(dest) + "&waypoints=" + stops.map(ll).join("%7C") + "&travelmode=driving";
-  const names = stops.map((s) => s.street).filter(Boolean);
-  $("loop-note").textContent = (names.length ? "Stops on " + [...new Set(names)].join(", ") + ". " : "") +
-    "Ends at " + (dest === a ? "Assuta" : dest.name + " because Assuta shows full") + ". Google Maps starts from where you are." +
-    (state.streets ? "" : " Street data didn't load, so the stops are approximate.");
-  if (!state.map) {
-    state.map = L.map("map", { zoomControl: false, attributionControl: true }).setView([a.lat, a.lon], 16);
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(state.map);
-  }
-  if (state.layers) state.layers.remove();
-  state.layers = L.layerGroup().addTo(state.map);
-  const css = getComputedStyle(document.documentElement);
-  const signColor = css.getPropertyValue("--sign").trim() || "#1b4fa0";
-  if (state.streets) for (const w of state.streets) L.polyline(w.pts.map((p) => [p.lat, p.lon]), { color: signColor, weight: 5, opacity: .45 }).addTo(state.layers);
-  L.polyline([...stops, dest].map((p) => [p.lat, p.lon]), { color: signColor, weight: 2, dashArray: "6 6" }).addTo(state.layers);
-  stops.forEach((p, i) => L.marker([p.lat, p.lon], { icon: L.divIcon({ className: "num-marker", html: String(i + 1), iconSize: [24, 24] }) }).addTo(state.layers));
-  for (const l of state.lots.filter((l) => distM(a, l) <= PLANB_RADIUS_M * 1.5)) {
-    const color = css.getPropertyValue(st(l.status).color.slice(4, -1)).trim() || "#888";
-    L.marker([l.lat, l.lon], { icon: L.divIcon({ className: "lot-marker", html: "", iconSize: [16, 16] }), title: l.name })
-      .bindPopup(l.name + " · " + st(l.status).en).addTo(state.layers).getElement().style.background = color;
-  }
-  state.map.fitBounds(L.latLngBounds([...stops, dest, a].map((p) => [p.lat, p.lon])).pad(0.25));
+function renderHealth() {
+  const box = $("health"); box.innerHTML = ""; const now = ilNow();
+  const rows = S.rows.assuta;
+  if (!rows.length) { box.textContent = "History: no checks saved yet."; return; }
+  const last = parseT(rows[rows.length - 1].checked_at), age = now - last;
+  box.append(el("div", null, "History: " + rows.length.toLocaleString() + " checks per lot since " + rows[0].checked_at.slice(0, 10) + ". Last check " + ago(age) + "."));
+  if (age > 40 * MIN && !DEMO) box.append(el("div", "warn", "The checker looks paused. In GitHub, open Actions → Watch parking lots → Run workflow."));
+  if (S.feedError) box.append(el("div", "warn", "The city feed didn't answer (" + S.feedError + "). Statuses may be missing."));
 }
 
-function renderHealth() {
-  const el = $("logger-health"), rows = state.rows;
-  if (!rows.length) { el.textContent = "History: no checks saved yet."; return; }
-  const last = rows[rows.length - 1], t = parseT(last.checked_at), age = ilNow() - t;
-  el.textContent = "History: " + rows.length.toLocaleString() + " checks since " + rows[0].checked_at.slice(0, 10) + ". Last check " + ago(age) +
-    (last.source === "error" ? " (the city feed didn't answer)" : "") +
-    (age > 60 * MIN && !DEMO ? ". The checker looks paused; open the repo's Actions tab to re-enable it." : ".");
+function renderAll() {
+  renderDecision(); renderLots(); renderSteps(); renderCurbs(); renderMap(); renderTonight(); renderWeek(); renderStrips(); renderPlanB(); renderRent(); renderHealth();
 }
 
 // ---------------------------------------------------------------- boot
 async function refresh() {
   $("refresh").disabled = true;
-  const [lots, rows] = await Promise.allSettled([loadLots(), loadLog()]);
-  state.lots = lots.status === "fulfilled" ? lots.value : [];
-  state.rows = rows.status === "fulfilled" ? rows.value : state.rows;
-  state.assuta = state.lots.find((l) => l.code === LOT_CODE) || state.lots.find((l) => l.name.includes(LOT_NAME)) || null;
-  renderStatus(); renderTonight(); renderStrip(); renderWeek(); renderPlanB(); renderHealth();
-  if (rows.status === "rejected") $("logger-health").textContent = "History didn't load (" + rows.reason.message + ").";
-  if (state.assuta && !state.streets && !DEMO) { try { state.streets = await loadStreets(state.assuta); } catch (e) { state.streets = null; } }
-  if (DEMO && !state.streets) { try { state.streets = (await getJson("demo/streets.json")); } catch (e) { state.streets = null; } }
-  renderLoop();
+  const [geo, feed, ra, rb] = await Promise.allSettled([S.geo ? Promise.resolve(S.geo) : getJson("geo.json"), loadFeed(), loadLog("assuta"), loadLog("basel")]);
+  if (geo.status === "fulfilled") S.geo = geo.value;
+  if (feed.status === "fulfilled") { S.feed = feed.value; S.feedError = null; } else S.feedError = feed.reason && feed.reason.message || "error";
+  if (ra.status === "fulfilled") S.rows.assuta = ra.value;
+  if (rb.status === "fulfilled") S.rows.basel = rb.value;
+  try { renderAll(); } catch (e) { console.error(e); }
   $("refresh").disabled = false;
 }
 $("refresh").addEventListener("click", refresh);
 $("demo-banner").hidden = !DEMO;
+loadSpots();
 refresh();
 setInterval(() => { if (!document.hidden) refresh(); }, 2 * 60 * 1000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
 </script>
 </body>
 </html>

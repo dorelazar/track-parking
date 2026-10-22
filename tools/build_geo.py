@@ -177,7 +177,27 @@ def windows(text):
     return out
 
 
-def build_curbs(raw, legs):
+def nearest_street(osm, p):
+    """(Hebrew name, English name) of the closest named street to (lat, lon)."""
+    best, name = 1e9, ("", "")
+    for w in osm["elements"]:
+        t = w.get("tags", {})
+        if "name" not in t or t.get("highway") in ("footway", "pedestrian", "steps", "path", "cycleway"):
+            continue
+        g = w["geometry"]
+        for a, b in zip(g, g[1:]):
+            ax, ay = (a["lon"] - p[1]) * KX, (a["lat"] - p[0]) * KY
+            bx, by = (b["lon"] - p[1]) * KX, (b["lat"] - p[0]) * KY
+            dx, dy = bx - ax, by - ay
+            L = dx * dx + dy * dy
+            u = 0 if L == 0 else max(0, min(1, -(ax * dx + ay * dy) / L))
+            d = math.hypot(ax + u * dx, ay + u * dy)
+            if d < best:
+                best, name = d, (t["name"], t.get("name:en", ""))
+    return name
+
+
+def build_curbs(raw, legs, osm):
     signs = J(raw, "loading_signs.json").get("features", [])
     route_pts = [p for l in legs for p in l["path"]]
     out = []
@@ -193,8 +213,10 @@ def build_curbs(raw, legs):
         win = windows(a.get("traffic_sign_text"))
         if not win:
             continue
+        street = nearest_street(osm, p)
         out.append({
             "id": a["traffic_sign_id"], "lat": round(p[0], 6), "lon": round(p[1], 6),
+            "street": street[0], "street_en": street[1],
             "who": who, "windows": win,
             "walk_m": round(d), "route_m": round(min(dist(p, q) for q in route_pts)),
             "text": norm(a.get("traffic_sign_text")),
@@ -271,7 +293,7 @@ def main():
         "lots": build_lots(raw),
         "route": route,
         "synagogue": build_synagogue(raw),
-        "curbs": build_curbs(raw, route["legs"]),
+        "curbs": build_curbs(raw, route["legs"], osm),
         "night_lots": build_night_lots(raw),
     }
     with open(out, "w", encoding="utf-8") as f:
@@ -282,7 +304,7 @@ def main():
         print("lots", {k: (v["lat"], v["lon"], v.get("capacity")) for k, v in geo["lots"].items()})
         print("synagogue", geo["synagogue"])
         for c in geo["curbs"]:
-            print("\nCURB %s %s walk=%dm route=%dm %s" % (c["id"], c["who"], c["walk_m"], c["route_m"], c["windows"]))
+            print("\nCURB %s %s %s walk=%dm route=%dm %s" % (c["id"], c["street_en"] or c["street"], c["who"], c["walk_m"], c["route_m"], c["windows"]))
             print("   ", c["text"][:260])
         for n in geo["night_lots"]:
             print("NIGHT", n)

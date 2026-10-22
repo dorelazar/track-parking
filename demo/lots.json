@@ -2,54 +2,50 @@
  "features": [
   {
    "attributes": {
-    "code_achoza": 122,
+    "code_achoza": 76,
     "shem_chenyon": "אסותא",
-    "ktovet": "ז'בוטינסקי 62 (sample)",
-    "lat": 32.0883,
-    "lon": 34.7852,
-    "status_chenyon": "מעט",
-    "tr_status_chenyon": 0,
-    "mispar_mekomot_bchenyon": 100,
-    "hearot_taarif": "הנחת תושב בסך 75% מתעריף החניון"
-   }
-  },
-  {
-   "attributes": {
-    "code_achoza": 901,
-    "shem_chenyon": "Sample lot A",
-    "ktovet": "sample address",
-    "lat": 32.08610277672033,
-    "lon": 34.78425607275705,
-    "status_chenyon": "פנוי",
-    "tr_status_chenyon": 0,
-    "mispar_mekomot_bchenyon": 196,
-    "hearot_taarif": ""
-   }
-  },
-  {
-   "attributes": {
-    "code_achoza": 902,
-    "shem_chenyon": "Sample lot B",
-    "ktovet": "sample address",
-    "lat": 32.09000871105124,
-    "lon": 34.78869323430344,
+    "ktovet": "ז`בוטינסקי 62 תל-אביב יפו",
+    "lat": 32.088301,
+    "lon": 34.7799,
     "status_chenyon": "מלא",
     "tr_status_chenyon": 0,
-    "mispar_mekomot_bchenyon": 120,
-    "hearot_taarif": ""
+    "mispar_mekomot_bchenyon": 0
    }
   },
   {
    "attributes": {
-    "code_achoza": 903,
-    "shem_chenyon": "Sample lot C",
-    "ktovet": "sample address",
-    "lat": 32.091087896978344,
-    "lon": 34.77950051245229,
+    "code_achoza": 10,
+    "shem_chenyon": "בזל",
+    "ktovet": "אשתורי הפרחי 5 תל-אביב יפו",
+    "lat": 32.090001,
+    "lon": 34.7801,
+    "status_chenyon": "מעט",
+    "tr_status_chenyon": 0,
+    "mispar_mekomot_bchenyon": 0
+   }
+  },
+  {
+   "attributes": {
+    "code_achoza": 77,
+    "shem_chenyon": "ארלוזורוב 17",
+    "ktovet": "ארלוזורוב 17 תל-אביב יפו",
+    "lat": 32.08739,
+    "lon": 34.77377,
     "status_chenyon": "פנוי",
     "tr_status_chenyon": 0,
-    "mispar_mekomot_bchenyon": 80,
-    "hearot_taarif": ""
+    "mispar_mekomot_bchenyon": 0
+   }
+  },
+  {
+   "attributes": {
+    "code_achoza": 86,
+    "shem_chenyon": "רמז-ארלוזורוב",
+    "ktovet": "רמז 1 תל-אביב יפו",
+    "lat": 32.08559,
+    "lon": 34.78577,
+    "status_chenyon": "פנוי",
+    "tr_status_chenyon": 0,
+    "mispar_mekomot_bchenyon": 0
    }
   }
  ]
