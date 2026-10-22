@@ -6,7 +6,7 @@ CASES = [("demo-light", "?demo", "light", 390), ("demo-dark", "?demo", "dark", 3
 async def main():
     log = {}
     async with async_playwright() as p:
-        b = await p.chromium.launch()
+        b = await p.chromium.launch(channel="chrome")
         for name, q, scheme, w in CASES:
             ctx = await b.new_context(viewport={"width": w, "height": 900}, color_scheme=scheme, timezone_id="Asia/Jerusalem", device_scale_factor=2 if w < 500 else 1)
             pg = await ctx.new_page(); errs = []
