@@ -13,7 +13,7 @@ async def main():
             pg.on("pageerror", lambda e: errs.append("pageerror: " + str(e)))
             pg.on("console", lambda m: m.type in ("error", "warning") and errs.append(m.type + ": " + m.text))
             pg.on("requestfailed", lambda r: errs.append("failed: " + r.url[:120]))
-            await pg.goto("http://localhost:8000/index.html" + q, wait_until="networkidle")
+            await pg.goto("https://dorelazar.github.io/track-parking/" + q, wait_until="networkidle")
             await pg.wait_for_timeout(3500)
             info = await pg.evaluate("""() => ({
               scrollW: document.documentElement.scrollWidth, innerW: innerWidth,

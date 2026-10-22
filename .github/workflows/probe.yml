@@ -12,10 +12,10 @@ jobs:
       - uses: actions/checkout@v4
       - name: Leaflet copy for local tests
         run: mkdir -p out/leaflet && curl -sSf -o out/leaflet/leaflet.js https://unpkg.com/leaflet@1.9.4/dist/leaflet.js && curl -sSf -o out/leaflet/leaflet.css https://unpkg.com/leaflet@1.9.4/dist/leaflet.css
-      - name: Live data for the local site
-        run: git clone --quiet --depth 1 --branch data "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" site/data
+      - name: Wait for the published page
+        run: for i in $(seq 1 60); do curl -s https://dorelazar.github.io/track-parking/ | grep -q drive-lap && break; sleep 10; done
       - run: pip install --quiet playwright
-      - run: (cd site && python3 -m http.server 8000 > /dev/null 2>&1 &) && sleep 2 && python3 shot.py
+      - run: python3 shot.py
       - name: Save to probe branch
         if: always()
         run: |
