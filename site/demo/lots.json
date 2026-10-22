@@ -1,0 +1,52 @@
+{
+ "features": [
+  {
+   "attributes": {
+    "code_achoza": 76,
+    "shem_chenyon": "אסותא",
+    "ktovet": "ז`בוטינסקי 62 תל-אביב יפו",
+    "lat": 32.088301,
+    "lon": 34.7799,
+    "status_chenyon": "מלא",
+    "tr_status_chenyon": 0,
+    "mispar_mekomot_bchenyon": 0
+   }
+  },
+  {
+   "attributes": {
+    "code_achoza": 10,
+    "shem_chenyon": "בזל",
+    "ktovet": "אשתורי הפרחי 5 תל-אביב יפו",
+    "lat": 32.090001,
+    "lon": 34.7801,
+    "status_chenyon": "מעט",
+    "tr_status_chenyon": 0,
+    "mispar_mekomot_bchenyon": 0
+   }
+  },
+  {
+   "attributes": {
+    "code_achoza": 77,
+    "shem_chenyon": "ארלוזורוב 17",
+    "ktovet": "ארלוזורוב 17 תל-אביב יפו",
+    "lat": 32.08739,
+    "lon": 34.77377,
+    "status_chenyon": "פנוי",
+    "tr_status_chenyon": 0,
+    "mispar_mekomot_bchenyon": 0
+   }
+  },
+  {
+   "attributes": {
+    "code_achoza": 86,
+    "shem_chenyon": "רמז-ארלוזורוב",
+    "ktovet": "רמז 1 תל-אביב יפו",
+    "lat": 32.08559,
+    "lon": 34.78577,
+    "status_chenyon": "פנוי",
+    "tr_status_chenyon": 0,
+    "mispar_mekomot_bchenyon": 0
+   }
+  }
+ ]
+}
