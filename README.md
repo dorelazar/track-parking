@@ -10,7 +10,7 @@ Predictions appear after two evenings where Assuta filled up, and get better aft
 
 ## Setup
 
-1. **Pages:** Settings → Pages → Source: *Deploy from a branch* → `main` / root. The page lives at `https://<user>.github.io/assuta-parking/`. Add it to your home screen.
+1. **Pages:** Settings → Pages → Source: *Deploy from a branch* → `main` / root. The page lives at `https://dorelazar.github.io/track-parking/`. Add it to your home screen.
 2. **Checker:** Actions tab → enable workflows if asked → *Check Assuta* → *Run workflow* once to start it.
 3. **Alerts (optional):** install the ntfy app, subscribe to a hard-to-guess topic (for example `assuta-k7q2x9`), then add it under Settings → Secrets and variables → Actions → New repository secret, named `NTFY_TOPIC`.
 
