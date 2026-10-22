@@ -1,12 +1,14 @@
-"""Check Assuta parking lot (Ahuzot HaHof, Jabotinsky 62) and log its status.
+"""Check the Assuta and Basel parking lots (Ahuzot HaHof) and log their status.
 
-Runs every ~10 minutes from GitHub Actions. Each run:
-  1. reads the lot's status from the Tel Aviv GIS feed (layer 970),
+Run repeatedly by .github/workflows/watch.yml. Each run:
+  1. reads both lots' status from the Tel Aviv GIS feed (layer 970),
      falling back to the status image on ahuzot.co.il;
-  2. appends one row to <data>/assuta.csv;
-  3. optionally sends phone alerts through ntfy.sh (NTFY_TOPIC secret):
-       - when Assuta turns "few spaces" or "full" in the evening;
-       - ~25 minutes before the time it usually fills on this weekday.
+  2. appends one row per lot to <data>/<lot>.csv (assuta.csv, basel.csv);
+  3. optionally sends phone alerts through ntfy.sh (NTFY_TOPIC secret).
+     Assuta comes first; Basel is the backup:
+       - Assuta turns "few spaces" or "full" in the evening;
+       - Basel fills up while Assuta is already full;
+       - about 20 minutes before the usual "park by" time for tonight.
 
 Standard library only, so the workflow needs no pip install.
 Usage: python poll.py --data DIR      (or --analyze to print the pattern)
@@ -25,18 +27,22 @@ from zoneinfo import ZoneInfo
 
 IL = ZoneInfo("Asia/Jerusalem")
 
-LOT_CODE = 122            # Ahuzot HaHof's id for Assuta (ahuzot.co.il ?ID=122)
-LOT_NAME = "אסותא"
+# Order matters: the first lot is the preferred one.
+LOTS = [
+    {"key": "assuta", "code": 122, "name": "אסותא", "en": "Assuta"},
+    {"key": "basel", "code": 3, "name": "בזל", "en": "Basel"},
+]
 GIS_URL = (
     "https://gisn.tel-aviv.gov.il/arcgis/rest/services/IView2/MapServer/970/query"
     "?where=1%3D1&outFields=code_achoza,shem_chenyon,status_chenyon,tr_status_chenyon"
     "&returnGeometry=false&f=json"
 )
-AHUZOT_URL = "https://www.ahuzot.co.il/Parking/ParkingDetails/?ID=%d" % LOT_CODE
+AHUZOT_URL = "https://www.ahuzot.co.il/Parking/ParkingDetails/?ID=%d"
 
 FULL, FEW, FREE, CLOSED, UNKNOWN = "מלא", "מעט", "פנוי", "סגור", "unknown"
 KNOWN = {FULL, FEW, FREE, CLOSED}
 AHUZOT_IMG = {"male": FULL, "meat": FEW, "panui": FREE}
+EN = {FULL: "full", FEW: "few spaces", FREE: "room", CLOSED: "closed", UNKNOWN: "no data"}
 
 # Analysis settings (mirrored in index.html — keep them in sync).
 EVENING_START_H = 15      # an "evening" runs 15:00 -> 04:00 next day
@@ -45,11 +51,12 @@ STALE_MIN = 90            # feed timestamp older than this = status unknown
 FRESH_SRC_MIN = 20        # use the feed's own timestamp when it's this fresh
 MAX_GAP_MIN = 45          # a fill time needs a check within 45 min before it
 MIN_CHECKS_FOR_NO_FILL = 40   # evening counts as "didn't fill" with this coverage
-LEAD_MIN = 25             # "get there by" = usual fill time minus this
-ALERT_AHEAD_MIN = 20      # heads-up alert goes out up to this long before "get there by"
+LEAD_MIN = 25             # "park by" = usual fill time minus this
+ALERT_AHEAD_MIN = 20      # heads-up alert goes out up to this long before "park by"
 WEEKS_BACK = 8
 
-HEADERS = {"User-Agent": "assuta-parking-logger (personal, 1 request / 10 min)"}
+HEADERS = {"User-Agent": "track-parking logger (personal, 1 request / 5 min)"}
+DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
 
 # ---------------------------------------------------------------- fetching
@@ -71,33 +78,42 @@ def read_gis():
     data = json.loads(fetch(GIS_URL))
     if "error" in data:
         raise RuntimeError(data["error"])
+    found = {}
     for f in data.get("features", []):
         a = f.get("attributes", {})
-        if a.get("code_achoza") == LOT_CODE or LOT_NAME in (a.get("shem_chenyon") or ""):
-            status = a.get("status_chenyon")
-            return {
-                "status": status if status in KNOWN else UNKNOWN,
-                "source_time": wallclock_from_feed(a.get("tr_status_chenyon")),
-                "source": "gis",
-            }
-    raise RuntimeError("Assuta not found in GIS feed")
+        for lot in LOTS:
+            if a.get("code_achoza") == lot["code"] or (lot["key"] not in found and (a.get("shem_chenyon") or "").strip() == lot["name"]):
+                status = a.get("status_chenyon")
+                found[lot["key"]] = {
+                    "status": status if status in KNOWN else UNKNOWN,
+                    "source_time": wallclock_from_feed(a.get("tr_status_chenyon")),
+                    "source": "gis",
+                }
+    return found
 
 
-def read_ahuzot():
-    html = fetch(AHUZOT_URL)
+def read_ahuzot(code):
+    html = fetch(AHUZOT_URL % code)
     m = re.search(r'ParkingDetailsTable.*?<img[^>]+src="([^"]+)"', html, re.S | re.I)
     stem = m.group(1).rsplit("/", 1)[-1].split(".")[0].lower() if m else ""
     return {"status": AHUZOT_IMG.get(stem, UNKNOWN), "source_time": None, "source": "ahuzot"}
 
 
-def read_status():
-    errors = []
-    for reader in (read_gis, read_ahuzot):
+def read_all():
+    out, err = {}, ""
+    try:
+        out = read_gis()
+    except Exception as e:  # noqa: BLE001 - fall back per lot
+        err = "gis: %s" % e
+    for lot in LOTS:
+        if lot["key"] in out:
+            continue
         try:
-            return reader()
-        except Exception as e:  # noqa: BLE001 - log and try the next source
-            errors.append("%s: %s" % (reader.__name__, e))
-    return {"status": UNKNOWN, "source_time": None, "source": "error", "error": "; ".join(errors)}
+            out[lot["key"]] = read_ahuzot(lot["code"])
+        except Exception as e:  # noqa: BLE001
+            out[lot["key"]] = {"status": UNKNOWN, "source_time": None, "source": "error"}
+            err += "; ahuzot %s: %s" % (lot["key"], e)
+    return out, err
 
 
 # ---------------------------------------------------------------- log file
@@ -156,7 +172,7 @@ def minutes_after_noon(t, evening):
 
 
 def evenings(rows):
-    """{evening_date: {'few': min|None, 'full': min|None, 'checks': n, 'usable_full': bool, ...}}"""
+    """{evening_date: {'few': min|None|'gap', 'full': ..., 'checks': n, 'filled': bool, 'usable': bool}}"""
     by = {}
     for row in rows:
         try:
@@ -220,11 +236,11 @@ def hhmm(m):
 
 # ---------------------------------------------------------------- alerts
 
-def notify(title, message, page_url=None):
+def notify(title, message, page_url=None, priority=3):
     topic = os.environ.get("NTFY_TOPIC", "").strip()
     if not topic:
         return False
-    body = {"topic": topic, "title": title, "message": message, "tags": ["car"]}
+    body = {"topic": topic, "title": title, "message": message, "tags": ["car"], "priority": priority}
     if page_url:
         body["click"] = page_url
     req = urllib.request.Request(
@@ -238,53 +254,78 @@ def notify(title, message, page_url=None):
         return False
 
 
-def run_alerts(rows, current, now, state_path):
+def last_two(rows):
+    """(previous known status, current status) from a lot's log."""
+    cur = effective(rows[-1])[1] if rows else UNKNOWN
+    prev = None
+    for row in reversed(rows[:-1]):
+        s = effective(row)[1]
+        if s != UNKNOWN:
+            prev = s
+            break
+    return prev, cur
+
+
+def plan_alerts(rows_by_lot, now, sent):
+    """Return [(key, title, message, priority)] to send now. Pure, for testing."""
+    ev = evening_of(now)
+    if ev is None:
+        return []
+    k = ev.isoformat()
+    a_prev, a_cur = last_two(rows_by_lot["assuta"])
+    b_prev, b_cur = last_two(rows_by_lot["basel"])
+    t = now.strftime("%H:%M")
+    out = []
+
+    def basel_hint():
+        if b_cur in (FREE, FEW):
+            return "Basel has %s." % EN[b_cur]
+        if b_cur == FULL:
+            return "Basel is full too, so start the street route."
+        return "No live data for Basel."
+
+    if a_cur == FEW and a_prev not in (None, FEW) and (k + ":assuta:few") not in sent:
+        out.append((k + ":assuta:few", "Assuta: few spaces left",
+                    "Few spaces at Assuta at %s. Go now to get a spot. %s" % (t, basel_hint()), 4))
+    if a_cur == FULL and a_prev not in (None, FULL) and (k + ":assuta:full") not in sent:
+        out.append((k + ":assuta:full", "Assuta is full",
+                    "Assuta filled at about %s. %s" % (t, basel_hint()), 4))
+    if b_cur == FULL and b_prev not in (None, FULL) and a_cur == FULL and (k + ":basel:full") not in sent:
+        out.append((k + ":basel:full", "Both lots are full",
+                    "Basel filled at about %s and Assuta is full. Start the street route." % t, 4))
+
+    if a_cur != FULL and (k + ":pre") not in sent:
+        pa = predict(evenings(rows_by_lot["assuta"]), ev.weekday(), ev)
+        pb = predict(evenings(rows_by_lot["basel"]), ev.weekday(), ev)
+        p = pa or pb
+        if p:
+            mins = minutes_after_noon(now, ev)
+            if p["arrive_by"] - ALERT_AHEAD_MIN <= mins < p["arrive_by"]:
+                day = DAY_NAMES[ev.weekday()] + "s" if p["scope"] == "weekday" else "recent evenings"
+                parts = []
+                if pa:
+                    parts.append("Assuta usually fills around %s" % hhmm(pa["full_median"]))
+                if pb:
+                    parts.append("Basel around %s" % hhmm(pb["full_median"]))
+                out.append((k + ":pre", "Head home to park soon",
+                            "%s on %s. Aim to park by %s." % (", ".join(parts), day, hhmm(p["arrive_by"])), 4))
+    return out
+
+
+def run_alerts(rows_by_lot, now, state_path):
     state = {}
     if os.path.exists(state_path):
         with open(state_path, encoding="utf-8") as f:
             state = json.load(f)
-    ev = evening_of(now)
-    if ev is None:
-        return
-    key = ev.isoformat()
+    sent = state.setdefault("sent", {})
     page = os.environ.get("PAGE_URL") or None
     changed = False
-
-    # 1) Status just turned few/full this evening.
-    prev = None
-    for row in reversed(rows[:-1]):
-        _, s = effective(row)
-        if s != UNKNOWN:
-            prev = s
-            break
-    _, cur = effective(rows[-1])
-    sent = state.setdefault("sent", {})
-    if cur in (FEW, FULL) and prev not in (None, cur) and sent.get(key + ":" + cur) is None:
-        if cur == FEW:
-            ok = notify("Assuta: few spaces left", "Few spaces at Assuta now (%s). Go now to get a spot." % now.strftime("%H:%M"), page)
-        else:
-            ok = notify("Assuta is full", "Assuta turned full at about %s. Check the page for Plan B." % now.strftime("%H:%M"), page)
-        if ok:
-            sent[key + ":" + cur] = now.strftime(FMT)
+    for key, title, msg, prio in plan_alerts(rows_by_lot, now, sent):
+        if notify(title, msg, page, prio):
+            sent[key] = now.strftime(FMT)
             changed = True
-
-    # 2) Heads-up before the usual fill time.
-    p = predict(evenings(rows), ev.weekday(), ev)
-    if p and cur != FULL and sent.get(key + ":pre") is None:
-        mins = minutes_after_noon(now, ev)
-        if p["arrive_by"] - ALERT_AHEAD_MIN <= mins < p["arrive_by"]:
-            ok = notify(
-                "Head to Assuta soon",
-                "It usually fills around %s on %ss (%d of %d evenings). Aim to park by %s."
-                % (hhmm(p["full_median"]), ev.strftime("%A") if p["scope"] == "weekday" else "recent day",
-                   p["filled"], p["evenings"], hhmm(p["arrive_by"])), page)
-            if ok:
-                sent[key + ":pre"] = now.strftime(FMT)
-                changed = True
-
     if changed:
-        # keep two weeks of alert history
-        cutoff = (ev - timedelta(days=14)).isoformat()
+        cutoff = (now.date() - timedelta(days=14)).isoformat()
         state["sent"] = {k: v for k, v in sent.items() if k[:10] >= cutoff}
         with open(state_path, "w", encoding="utf-8") as f:
             json.dump(state, f, ensure_ascii=False, indent=1)
@@ -294,35 +335,41 @@ def run_alerts(rows, current, now, state_path):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--data", default="data", help="folder holding assuta.csv")
+    ap.add_argument("--data", default="data", help="folder holding the <lot>.csv logs")
     ap.add_argument("--analyze", action="store_true", help="print the pattern and exit")
     args = ap.parse_args()
     os.makedirs(args.data, exist_ok=True)
-    log = os.path.join(args.data, "assuta.csv")
+    path = lambda lot: os.path.join(args.data, lot["key"] + ".csv")
     now = datetime.now(IL).replace(tzinfo=None, second=0, microsecond=0)
 
     if args.analyze:
-        rows = load_rows(log)
-        evs = evenings(rows)
-        for d in sorted(evs):
-            r = evs[d]
-            f = hhmm(r["full"]) if isinstance(r["full"], int) else r["full"]
-            print(d, d.strftime("%a"), "checks=%d" % r["checks"], "full=%s" % f)
-        for wd in range(7):
-            print(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][wd], predict(evs, wd, now.date() + timedelta(days=1)))
+        for lot in LOTS:
+            evs = evenings(load_rows(path(lot)))
+            print("==", lot["en"])
+            for d in sorted(evs)[-14:]:
+                r = evs[d]
+                f = hhmm(r["full"]) if isinstance(r["full"], int) else r["full"]
+                print(" ", d, d.strftime("%a"), "checks=%d" % r["checks"], "full=%s" % f)
+            for wd in range(7):
+                p = predict(evs, wd, now.date() + timedelta(days=1))
+                print(" ", DAY_NAMES[wd][:3], p and (hhmm(p["full_median"]), "%d/%d" % (p["filled"], p["evenings"])))
         return
 
-    st = read_status()
-    row = {
-        "checked_at": now.strftime(FMT),
-        "status": st["status"],
-        "source_time": st["source_time"].strftime(FMT) if st["source_time"] else "",
-        "source": st["source"],
-    }
-    append_row(log, row)
-    print("Assuta:", row, st.get("error", ""))
-    rows = load_rows(log)
-    run_alerts(rows, st, now, os.path.join(args.data, "alerts.json"))
+    statuses, err = read_all()
+    for lot in LOTS:
+        st = statuses[lot["key"]]
+        row = {
+            "checked_at": now.strftime(FMT),
+            "status": st["status"],
+            "source_time": st["source_time"].strftime(FMT) if st["source_time"] else "",
+            "source": st["source"],
+        }
+        append_row(path(lot), row)
+        print(lot["en"], row)
+    if err:
+        print("warnings:", err)
+    rows = {lot["key"]: load_rows(path(lot)) for lot in LOTS}
+    run_alerts(rows, now, os.path.join(args.data, "alerts.json"))
 
 
 if __name__ == "__main__":

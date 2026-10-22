@@ -1,0 +1,28 @@
+name: Refresh map data
+
+# Rebuilds geo.json (route, curb signs, night lots) from the city GIS and
+# OpenStreetMap. Runs monthly, or by hand from the Actions tab.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "41 3 2 * *"
+
+permissions:
+  contents: write
+
+jobs:
+  geo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tools/fetch_geo.py raw
+      - run: python3 tools/build_geo.py raw geo.json --report
+      - name: Save if changed
+        run: |
+          git add geo.json
+          git diff --cached --quiet && { echo "No changes"; exit 0; }
+          git config user.name "map-refresh"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Refresh map data"
+          git push

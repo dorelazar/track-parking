@@ -1,0 +1,77 @@
+name: Watch parking lots
+
+# One run checks Assuta and Basel every 5 minutes in the evening (14:00-02:00)
+# and every 15 minutes otherwise, for about 5h45m, then starts the next run.
+# The hourly schedule only restarts the chain if it ever stops.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 * * * *"
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 358
+    env:
+      GH_TOKEN: ${{ github.token }}
+      NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+      PAGE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
+    steps:
+      - name: Make sure only one watcher runs
+        id: dedupe
+        run: |
+          for i in $(seq 1 10); do
+            others=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/watch.yml/runs?status=in_progress&per_page=20" \
+              --jq "[.workflow_runs[] | select(.id != ${GITHUB_RUN_ID})] | length" || echo 0)
+            if [ "$others" = "0" ]; then echo "skip=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+            sleep 20
+          done
+          echo "Another watcher is running; this one stops."
+          echo "skip=true" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        if: steps.dedupe.outputs.skip == 'false'
+
+      - name: Get the data branch
+        if: steps.dedupe.outputs.skip == 'false'
+        run: |
+          REPO_URL="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if git ls-remote --exit-code --heads "$REPO_URL" data >/dev/null; then
+            git clone --quiet --depth 20 --branch data "$REPO_URL" data-branch
+          else
+            mkdir data-branch
+            git -C data-branch init --quiet -b data
+            git -C data-branch remote add origin "$REPO_URL"
+          fi
+          git -C data-branch config user.name "parking-watcher"
+          git -C data-branch config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Watch
+        if: steps.dedupe.outputs.skip == 'false'
+        run: |
+          end=$(( $(date +%s) + 345 * 60 ))
+          while [ "$(date +%s)" -lt "$end" ]; do
+            python3 poll.py --data data-branch || echo "check failed"
+            (
+              cd data-branch
+              git add -A
+              git diff --cached --quiet && exit 0
+              git commit --quiet -m "Check $(TZ=Asia/Jerusalem date +%Y-%m-%dT%H:%M)"
+              git push --quiet origin HEAD:data || { git pull --quiet --rebase origin data && git push --quiet origin HEAD:data; }
+            ) || echo "save failed"
+            h=$((10#$(TZ=Asia/Jerusalem date +%H)))
+            if [ "$h" -ge 14 ] || [ "$h" -lt 2 ]; then step=300; else step=900; fi
+            now=$(date +%s)
+            pause=$(( step - now % step + 20 ))
+            [ $(( now + pause )) -lt "$end" ] || break
+            sleep "$pause"
+          done
+
+      - name: Start the next watcher
+        if: ${{ !cancelled() && steps.dedupe.outputs.skip == 'false' }}
+        run: gh workflow run watch.yml --repo "$GITHUB_REPOSITORY" --ref main
