@@ -10,12 +10,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - name: Leaflet copy for local tests
-        run: mkdir -p out/leaflet && curl -sSf -o out/leaflet/leaflet.js https://unpkg.com/leaflet@1.9.4/dist/leaflet.js && curl -sSf -o out/leaflet/leaflet.css https://unpkg.com/leaflet@1.9.4/dist/leaflet.css
-      - name: Wait for the published page
-        run: sleep 30; for i in $(seq 1 60); do curl -s "https://dorelazar.github.io/track-parking/?x=$RANDOM" | grep -q 'const tap = !S.picking' && break; sleep 10; done
-      - run: pip install --quiet playwright
-      - run: python3 shot.py
+      - run: mkdir -p out
+      - run: python3 fetch_geo.py out/raw > out/fetch.log 2>&1 || echo "exit $?" >> out/fetch.log
       - name: Save to probe branch
         if: always()
         run: |
