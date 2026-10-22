@@ -11,7 +11,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: mkdir -p out
-      - run: python3 fetch_geo.py out/raw > out/fetch.log 2>&1 || echo "exit $?" >> out/fetch.log
+      - name: Wait for the published page
+        run: sleep 20; for i in $(seq 1 60); do curl -s "https://dorelazar.github.io/track-parking/?x=$RANDOM" | grep -q 'Short block north' && break; sleep 10; done
+      - run: pip install --quiet playwright
+      - run: python3 shot.py
       - name: Save to probe branch
         if: always()
         run: |
