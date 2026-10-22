@@ -119,10 +119,11 @@ h3 { font: 700 15px/1.3 var(--font-body); margin: 0; }
 
 /* lists */
 .items { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-.item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; align-items: start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; }
+.item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; align-items: baseline; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; }
 .item .t { font-weight: 700; }
-.item .m { font-size: 13px; color: var(--muted); grid-column: 1; }
-.item .r { grid-column: 2; grid-row: 1 / span 2; display: grid; gap: 6px; justify-items: end; }
+.item .m { font-size: 13px; color: var(--muted); grid-column: 1 / -1; }
+.item .r { grid-column: 2; grid-row: 1; display: flex; gap: 8px; align-items: baseline; }
+.item .chips { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; }
 .item .go { font-size: 14px; font-weight: 600; color: var(--sign); text-decoration: none; }
 .item details { grid-column: 1 / -1; font-size: 13px; color: var(--muted); }
 .item details p { margin: 6px 0 0; direction: rtl; text-align: right; font-size: 14px; color: var(--ink); }
@@ -650,10 +651,11 @@ function renderCurbs() {
       chip = el("span", "chip " + (open ? "s-free" : "s-unknown"), open ? "Open until " + whenText(now, u) : "Opens " + whenText(now, u));
     }
     const go = el("a", "go", "Navigate"); go.href = wazeUrl(c); go.target = "_blank"; go.rel = "noopener";
-    r.append(chip, go);
+    r.append(go);
+    const cr = el("span", "chips"); cr.append(chip);
     const d = el("details"); d.append(el("summary", null, c.who === "all" ? "Loading hours: " + windowsText(c.windows) : "The sign doesn't say who may park outside the loading hours"));
     const p = el("p", null, c.text); p.lang = "he"; d.append(p);
-    li.append(t, r, m, d); ul.append(li);
+    li.append(t, r, cr, m, d); ul.append(li);
   }
   if (far.length) {
     const li = el("li"); const b = el("button", "btn small more", showFarCurbs ? "Show only the close ones" : "Show " + far.length + " farther (7–10 min walk)"); b.type = "button";
@@ -677,11 +679,11 @@ function renderMySpots() {
     const dayTxt = { all: "every day", "0-4": "Sun–Thu (all day Fri–Sat)", "0-5": "Sun–Fri (all day Sat)" }[s.days] || "";
     const m = el("span", "m", "Allowed " + s.from + "–" + s.to + ", " + dayTxt);
     const r = el("span", "r");
-    r.append(el("span", "chip " + (open ? "s-free" : "s-unknown"), open ? "Open until " + whenText(now, u) : "Opens " + whenText(now, u)));
+    const cr = el("span", "chips"); cr.append(el("span", "chip " + (open ? "s-free" : "s-unknown"), open ? "Open until " + whenText(now, u) : "Opens " + whenText(now, u)));
     const del = el("button", "btn small", "Remove"); del.type = "button";
     del.addEventListener("click", () => { S.spots.splice(i, 1); saveSpots(); renderCurbs(); renderMap(); renderDecision(); });
     r.append(del);
-    li.append(t, r, m); ul.append(li);
+    li.append(t, r, cr, m); ul.append(li);
   });
 }
 
@@ -695,11 +697,13 @@ function renderMap() {
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(S.map);
     S.map.on("click", onMapClick);
     S.layers = L.layerGroup().addTo(S.map);
-    const pts = S.geo.route.legs.filter((l) => l.part === "loop" || l.id === "hyrcanus").flatMap((l) => l.path).concat(Object.values(S.geo.lots).map((l) => [l.lat, l.lon]));
-    S.map.fitBounds(L.latLngBounds(pts).pad(0.08), { maxZoom: 17 });
+    const pts = S.geo.route.legs.filter((l) => l.part === "loop").flatMap((l) => l.path).concat(Object.values(S.geo.lots).map((l) => [l.lat, l.lon]));
+    const fit = () => { S.map.invalidateSize(); S.map.fitBounds(L.latLngBounds(pts).pad(0.15), { maxZoom: 17 }); };
+    fit(); setTimeout(fit, 400);
   }
   S.layers.clearLayers();
   const sign = cssVar("--sign") || "#1b4fa0";
+  const tap = !S.picking; // while placing a spot, every tap goes to the map
   for (const leg of S.geo.route.legs) {
     const loop = leg.part === "loop";
     L.polyline(leg.path, { color: sign, weight: loop ? 6 : 4, opacity: loop ? .85 : .55, dashArray: loop ? null : "8 8", interactive: false }).addTo(S.layers);
@@ -711,25 +715,25 @@ function renderMap() {
       L.marker(mid, { interactive: false, icon: L.divIcon({ className: "mk-arrow", html: '<span style="display:block;transform:rotate(' + (ang - 90) + 'deg)">➤</span>', iconSize: [16, 16] }) }).addTo(S.layers);
     }
   }
-  if (S.geo.synagogue) L.marker([S.geo.synagogue.lat, S.geo.synagogue.lon], { title: S.geo.synagogue.name, icon: L.divIcon({ className: "mk-syn", html: "✡", iconSize: [20, 20] }) })
+  if (S.geo.synagogue) L.marker([S.geo.synagogue.lat, S.geo.synagogue.lon], { interactive: tap, title: S.geo.synagogue.name, icon: L.divIcon({ className: "mk-syn", html: "✡", iconSize: [20, 20] }) })
     .bindPopup(S.geo.synagogue.name + " · " + S.geo.synagogue.address).addTo(S.layers);
   for (const c of S.geo.curbs) {
     const color = c.who !== "all" ? cssVar("--few") : curbOpen(c, now) ? cssVar("--free") : cssVar("--closed");
-    const m = L.marker([c.lat, c.lon], { title: curbStreet(c), icon: L.divIcon({ className: "mk-curb", html: "", iconSize: [14, 14] }) })
+    const m = L.marker([c.lat, c.lon], { interactive: tap, title: curbStreet(c), icon: L.divIcon({ className: "mk-curb", html: "", iconSize: [14, 14] }) })
       .bindPopup(curbStreet(c) + "<br>" + (c.who === "all" ? "Loading " + windowsText(c.windows) + "; open to all otherwise" : "Check the sign")).addTo(S.layers);
     m.getElement().style.background = color;
   }
   for (const s of S.spots) {
-    L.circleMarker([s.lat, s.lon], { radius: 8, color: cssVar("--surface"), weight: 2, fillColor: cssVar("--basel"), fillOpacity: spotOpen(s, now) ? 1 : .45 })
+    L.circleMarker([s.lat, s.lon], { interactive: tap, radius: 8, color: cssVar("--surface"), weight: 2, fillColor: cssVar("--basel"), fillOpacity: spotOpen(s, now) ? 1 : .45 })
       .bindPopup((s.name || "My spot") + "<br>Allowed " + s.from + "–" + s.to).addTo(S.layers);
   }
   LOTS.forEach((meta, i) => {
     const Lv = lotLive(meta.key); if (!Lv.pos) return;
-    const m = L.marker([Lv.pos.lat, Lv.pos.lon], { title: meta.en, zIndexOffset: 500, icon: L.divIcon({ className: "mk-lot", html: meta.en[0], iconSize: [28, 28] }) })
+    const m = L.marker([Lv.pos.lat, Lv.pos.lon], { interactive: tap, title: meta.en, zIndexOffset: 500, icon: L.divIcon({ className: "mk-lot", html: meta.en[0], iconSize: [28, 28] }) })
       .bindPopup(meta.en + " · " + st(Lv.status).en).addTo(S.layers);
     m.getElement().style.background = Lv.status === "unknown" ? cssVar("--closed") : cssVar(st(Lv.status).color);
   });
-  if (S.picking && S.picking.lat != null) L.circleMarker([S.picking.lat, S.picking.lon], { radius: 10, color: cssVar("--basel"), weight: 3, fillOpacity: .2 }).addTo(S.layers);
+  if (S.picking && S.picking.lat != null) L.circleMarker([S.picking.lat, S.picking.lon], { interactive: false, radius: 10, color: cssVar("--basel"), weight: 3, fillOpacity: .2 }).addTo(S.layers);
 }
 
 // ---------------------------------------------------------------- add-spot flow
@@ -744,6 +748,7 @@ function startPick() {
   $("spot-form").hidden = false; $("spot-add").hidden = true; $("spot-save").disabled = true;
   $("pick-hint").textContent = "Tap the map where the curb is.";
   $("app").classList.add("picking");
+  S.map && S.map.closePopup(); renderMap();
   $("map").scrollIntoView({ behavior: "smooth", block: "center" });
 }
 function endPick() { S.picking = null; $("spot-form").hidden = true; $("spot-add").hidden = false; $("app").classList.remove("picking"); renderMap(); }
@@ -831,14 +836,16 @@ function navItem(title, he, parts, chipCls, chipText, pos) {
   const li = el("li", "item");
   const t = titleWithHe(title, he);
   const r = el("span", "r");
-  if (chipText) r.append(el("span", "chip " + chipCls, chipText));
+  const cr = el("span", "chips"); if (chipText) cr.append(el("span", "chip " + chipCls, chipText));
   const go = el("a", "go", "Navigate"); go.href = wazeUrl(pos); go.target = "_blank"; go.rel = "noopener"; r.append(go);
   const m = el("span", "m");
   parts.filter(Boolean).forEach((p, i) => {
     if (i) m.append(" · ");
     if (typeof p === "string") m.append(p); else { const b = el("bdi", null, p.he); b.dir = "rtl"; m.append(b); }
   });
-  li.append(t, r, m);
+  li.append(t, r);
+  if (chipText) li.append(cr);
+  li.append(m);
   return li;
 }
 function renderPlanB() {
