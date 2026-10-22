@@ -13,7 +13,10 @@ async def main():
             pg.on("pageerror", lambda e: errs.append("pageerror: " + str(e)))
             pg.on("console", lambda m: m.type in ("error", "warning") and errs.append(m.type + ": " + m.text))
             pg.on("requestfailed", lambda r: errs.append("failed: " + r.url[:120]))
-            await pg.goto("https://dorelazar.github.io/track-parking/" + q, wait_until="networkidle")
+            try:
+                await pg.goto("https://dorelazar.github.io/track-parking/" + q, wait_until="networkidle", timeout=45000)
+            except Exception as e:
+                errs.append("goto: " + str(e)[:200])
             await pg.wait_for_timeout(3500)
             info = await pg.evaluate("""() => ({
               scrollW: document.documentElement.scrollWidth, innerW: innerWidth,
@@ -28,13 +31,15 @@ async def main():
             log[name] = info
             await pg.screenshot(path=f"{OUT}/{name}.png", full_page=True)
             if name == "demo-light":
-                # exercise "add a spot"
-                await pg.click("#spot-add"); await pg.wait_for_timeout(600)
-                box = await pg.locator("#map").bounding_box()
-                await pg.mouse.click(box["x"] + box["width"] * 0.5, box["y"] + box["height"] * 0.55)
-                await pg.fill("#spot-name", "Test spot"); await pg.click("#spot-save"); await pg.wait_for_timeout(500)
-                log["add-spot"] = await pg.evaluate("document.getElementById('my-list').innerText + ' | stored=' + localStorage.getItem('track-parking-spots')")
-                await pg.locator("#route").screenshot(path=f"{OUT}/map-with-spot.png")
+                try:
+                    await pg.click("#spot-add", timeout=8000); await pg.wait_for_timeout(1500)
+                    box = await pg.locator("#map").bounding_box()
+                    await pg.mouse.click(box["x"] + box["width"] * 0.5, box["y"] + box["height"] * 0.55)
+                    await pg.fill("#spot-name", "Test spot", timeout=8000); await pg.click("#spot-save", timeout=8000); await pg.wait_for_timeout(500)
+                    log["add-spot"] = await pg.evaluate("document.getElementById('my-list').innerText + ' | stored=' + localStorage.getItem('track-parking-spots')")
+                    await pg.locator("#route").screenshot(path=f"{OUT}/map-with-spot.png")
+                except Exception as e:
+                    log["add-spot"] = "FAILED: " + str(e)[:800]
             await ctx.close()
         await b.close()
     json.dump(log, open(f"{OUT}/log.json", "w"), ensure_ascii=False, indent=1)
