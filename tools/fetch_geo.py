@@ -6,6 +6,7 @@ Sources: Tel Aviv municipality GIS (IView2 MapServer) and OpenStreetMap (Overpas
 import json
 import os
 import sys
+import time
 import urllib.parse
 import urllib.request
 
@@ -17,10 +18,18 @@ OVERPASS = ["https://overpass-api.de/api/interpreter",
             "https://maps.mail.ru/osm/tools/overpass/api/interpreter"]
 
 
-def post(url, params, timeout=120):
-    req = urllib.request.Request(url, data=urllib.parse.urlencode(params).encode(), headers=H)
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return r.read()
+def post(url, params, timeout=120, tries=4):
+    """POST with retries: the city server sometimes answers 502/504 for a minute."""
+    for attempt in range(tries):
+        try:
+            req = urllib.request.Request(url, data=urllib.parse.urlencode(params).encode(), headers=H)
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return r.read()
+        except Exception as e:  # noqa: BLE001
+            if attempt == tries - 1:
+                raise
+            print("retrying after", e)
+            time.sleep(15 * (attempt + 1))
 
 
 def layer(lid, box=True):
@@ -37,12 +46,19 @@ def layer(lid, box=True):
 def main():
     out = sys.argv[1]
     os.makedirs(out, exist_ok=True)
-    files = {"lots.json": lambda: layer(970, box=False),
-             "loading_signs.json": lambda: layer(449),
-             "night_lots.json": lambda: layer(488, box=False),
-             "synagogues.json": lambda: layer(568)}
-    for name, fn in files.items():
-        open(os.path.join(out, name), "wb").write(fn())
+    files = {"lots.json": (lambda: layer(970, box=False), True),
+             "loading_signs.json": (lambda: layer(449), True),
+             "night_lots.json": (lambda: layer(488, box=False), True),
+             "synagogues.json": (lambda: layer(568), False)}
+    for name, (fn, required) in files.items():
+        try:
+            data = fn()
+        except Exception as e:  # noqa: BLE001
+            if required:
+                raise
+            print("skipped optional", name, e)
+            continue
+        open(os.path.join(out, name), "wb").write(data)
         print("ok", name)
     q = '[out:json][timeout:60];way(around:900,32.0890,34.7800)[highway][name];out tags geom;'
     for host in OVERPASS:

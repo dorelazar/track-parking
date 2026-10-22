@@ -278,6 +278,8 @@ def build_night_lots(raw):
 
 
 def build_synagogue(raw):
+    if not os.path.exists(os.path.join(raw, "synagogues.json")):
+        return {"name": 'עטרת צבי "יקרי"', "address": "יריחו 5", "lat": 32.090541, "lon": 34.781622}
     for f in J(raw, "synagogues.json")["features"]:
         a, g = f["attributes"], f["geometry"]
         if (a.get("name_str") or "").strip() == SYNAGOGUE_HINT[0] and (a.get("bait") or "").strip() == SYNAGOGUE_HINT[1]:
