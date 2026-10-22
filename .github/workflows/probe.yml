@@ -1,5 +1,7 @@
 name: Probe map data
-on: workflow_dispatch
+on:
+  push:
+    branches: [probe]
 permissions:
   contents: write
 jobs:
