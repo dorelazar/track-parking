@@ -18,7 +18,7 @@ import sys
 from collections import defaultdict
 
 ANCHOR = (32.08830, 34.77990)        # Assuta, used for distances
-CURB_RADIUS_M = 700
+CURB_RADIUS_M = 1100
 NIGHT_LOT_RADIUS_M = 850
 KX = 111320 * math.cos(math.radians(32.09))
 KY = 110540
@@ -147,6 +147,8 @@ def classify(text):
     if re.search(r"לרכב מספר|24 שעות|החניה אסורה בכל הימים", t):
         return "none"
     other = t.split("ביתר", 1)[1] if "ביתר" in t else ""
+    if re.search(r"החני[הת]\s*אסורה", other):
+        return "none"
     if other:
         if "תו" in other.split("פריקה")[0]:
             return "permit"

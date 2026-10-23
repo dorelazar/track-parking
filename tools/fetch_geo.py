@@ -12,7 +12,7 @@ import urllib.request
 
 H = {"User-Agent": "track-parking map refresh (personal, monthly)"}
 LAYER = "https://gisn.tel-aviv.gov.il/arcgis/rest/services/IView2/MapServer/%d/query"
-BOX = [34.7700, 32.0820, 34.7920, 32.0980]          # about 1 km around Assuta and Basel
+BOX = [34.7620, 32.0770, 34.7980, 32.1030]          # about 1.5 km around Assuta and Basel
 OVERPASS = ["https://overpass-api.de/api/interpreter",
             "https://overpass.private.coffee/api/interpreter",
             "https://maps.mail.ru/osm/tools/overpass/api/interpreter"]
@@ -60,7 +60,7 @@ def main():
             continue
         open(os.path.join(out, name), "wb").write(data)
         print("ok", name)
-    q = '[out:json][timeout:60];way(around:900,32.0890,34.7800)[highway][name];out tags geom;'
+    q = '[out:json][timeout:60];way(around:1400,32.0890,34.7800)[highway][name];out tags geom;'
     for host in OVERPASS:
         try:
             open(os.path.join(out, "osm.json"), "wb").write(post(host, {"data": q}))
