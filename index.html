@@ -539,10 +539,11 @@ function stateSince(key, status) {
   const pts = S.rows[key].map(effective).filter((e) => e && e.s !== "unknown").sort((a, b) => a.t - b.t);
   let since = null, i = pts.length - 1;
   for (; i >= 0 && pts[i].s === status; i--) since = pts[i].t;
-  return since == null ? null : { t: since, sure: i >= 0 };
+  return since == null ? null : { t: since, sure: i >= 0, prev: i >= 0 ? pts[i].s : null };
 }
 function freeUpTime(key) {
-  // Median time (min after the evening's noon) a full lot first stops being full.
+  // Median time (min after the evening's noon) a lot that filled has real room again.
+  // At night a full lot flips to "few" whenever one car leaves; that doesn't count.
   const byEv = new Map();
   for (const e of S.rows[key].map(effective)) {
     if (!e || e.s === "unknown") continue;
@@ -555,7 +556,7 @@ function freeUpTime(key) {
     let wasFull = false;
     for (const q of pts) {
       if (q.s === "מלא") wasFull = true;
-      else if (wasFull) { const m = minAfterNoon(q.t, ev); if (m >= 12 * 60) times.push(m); break; } // morning release only
+      else if (wasFull && q.s === "פנוי") { times.push(minAfterNoon(q.t, ev)); break; }
     }
   }
   return times.length >= 2 ? median(times) : null;
@@ -568,9 +569,15 @@ function lotDetail(key) {
   let level, note = "";
   if (s === "מלא") {
     level = 4; const fu = freeUpTime(key);
-    note = "Full" + forTxt + (fu != null ? ". Usually frees up around " + hhmm(fu) + "." : ".");
+    note = "Full" + forTxt + (fu != null ? ". Usually has room again around " + hhmm(fu) + "." : ".");
   } else if (s === "מעט") {
     level = 2;
+    if (since && since.prev === "מלא") {
+      // It was full and one or two cars just left: those spaces go fast.
+      level = 3;
+      note = "A space opened " + fmtDur(Math.max(1, Math.round((now - since.t) / MIN))) + " ago after it was full. These go quickly.";
+      return { level, label: "Almost full", cls: LEVELS[level].cls, note };
+    }
     if (p && p.fewMedian != null) {
       const typical = Math.max(10, p.fullMedian - p.fewMedian);
       const left = since && since.sure ? typical - Math.round((now - since.t) / MIN) : p.fullMedian - m;
