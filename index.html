@@ -20,6 +20,7 @@
   --sign: #1b4fa0; --sign-ink: #ffffff; --curb: #ffffff; --basel: #7a3fa8;
   --free: #12804a; --few: #a86200; --full: #c62828; --closed: #6b7280;
   --free-bg: #e3f4ea; --few-bg: #fbefd9; --full-bg: #fbe4e2; --closed-bg: #eceef1;
+  --almost: #c2410c; --almost-bg: #fde4d4;
   --font-display: "Secular One", "Assistant", system-ui, sans-serif;
   --font-body: "Assistant", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-data: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
@@ -31,6 +32,7 @@
     --sign: #6f9cf0; --sign-ink: #0b111d; --curb: #e7ecf4; --basel: #c08ae6;
     --free: #45c486; --few: #f0a53c; --full: #ff6f62; --closed: #9aa3b0;
     --free-bg: #12301f; --few-bg: #35270f; --full-bg: #3a1716; --closed-bg: #1f2633;
+    --almost: #ff8a4c; --almost-bg: #3a2010;
     color-scheme: dark;
   }
   .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.85) contrast(.9) saturate(.6); }
@@ -94,6 +96,14 @@ h3 { font: 700 15px/1.3 var(--font-body); margin: 0; }
 .lot .meta b { color: var(--ink); font-family: var(--font-data); font-weight: 500; }
 .lot .links { display: flex; gap: 6px; flex-wrap: wrap; }
 .lot .stale { font-size: 13px; color: var(--few); }
+.gauge { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 3px; }
+.gauge span { height: 6px; border-radius: 3px; background: var(--closed-bg); }
+.gauge.l0 span:nth-child(-n+1), .gauge.l1 span:nth-child(-n+2) { background: var(--free); }
+.gauge.l2 span:nth-child(-n+3) { background: var(--few); }
+.gauge.l3 span:nth-child(-n+4) { background: var(--almost); }
+.gauge.l4 span { background: var(--full); }
+.lot .level { font-size: 13px; color: var(--ink); }
+.s-almost { background: var(--almost-bg); color: var(--almost); }
 @media (max-width: 380px) { .lots { grid-template-columns: 1fr; } }
 
 /* route */
@@ -200,7 +210,7 @@ footer a { color: inherit; }
       <span><i style="background:var(--sign)"></i>Loop</span>
       <span><i class="sq" style="background:var(--free)"></i>Curb open now</span>
       <span><i class="sq" style="background:var(--closed)"></i>Curb restricted now</span>
-      <span><i class="sq" style="background:var(--few)"></i>Check the sign</span>
+      <span><i class="sq" style="background:var(--few)"></i>Likely open, check curb</span>
       <span><i style="background:var(--basel)"></i>My spot</span>
     </div>
   </section>
@@ -210,7 +220,7 @@ footer a { color: inherit; }
     <p class="note">Loading zones whose sign lets anyone park outside the loading hours, from the city's sign records. Always check the sign on the pole.</p>
     <ul class="items" id="curb-list"></ul>
     <h3 class="sub-h">My spots</h3>
-    <p class="note" id="my-empty">Seen a red-white curb with hours on your loop? Add it here and the page will tell you when it's open. Saved on this phone only.</p>
+    <p class="note" id="my-empty">Seen a red-white curb with hours on your loop? Add it here and the page will tell you when it's open. Spots you add stay on this phone; tap Copy and send one to Claude to save it for every device.</p>
     <ul class="items" id="my-list"></ul>
     <div class="form" id="spot-form" hidden>
       <p class="note" id="pick-hint">Tap the map where the curb is.</p>
@@ -319,8 +329,10 @@ const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyV
 // (that is how the city feed encodes tr_status_chenyon), so zones never mix.
 const ilFmt = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Jerusalem", year: "numeric",
   month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+const AT = DEMO && /^(\d{1,2}):(\d{2})$/.exec(new URLSearchParams(location.search).get("at") || ""); // sample mode only: pretend it's this time today
 function ilNow() {
   const p = {}; ilFmt.formatToParts(new Date()).forEach((x) => (p[x.type] = x.value));
+  if (AT) return Date.UTC(+p.year, +p.month - 1, +p.day, +AT[1], +AT[2], 0);
   return Date.UTC(+p.year, +p.month - 1, +p.day, p.hour === "24" ? 0 : +p.hour, +p.minute, +p.second);
 }
 const MIN = 60000, DAY = 86400000;
@@ -493,7 +505,7 @@ const pt = (a) => ({ lat: a[0], lon: a[1] });
 const walkMin = (m) => Math.max(1, Math.round(m / WALK_M_PER_MIN));
 
 // ---------------------------------------------------------------- state
-const S = { geo: null, feed: [], lots: {}, rows: { assuta: [], basel: [] }, spots: [], map: null, layers: null, picking: null, feedError: null };
+const S = { geo: null, feed: [], lots: {}, rows: { assuta: [], basel: [] }, spots: [], shared: [], map: null, layers: null, picking: null, feedError: null };
 
 function loadSpots() { try { S.spots = JSON.parse(localStorage.getItem(SPOTS_KEY) || "[]"); } catch (e) { S.spots = []; } }
 function saveSpots() { try { localStorage.setItem(SPOTS_KEY, JSON.stringify(S.spots)); } catch (e) { /* private mode */ } }
@@ -508,6 +520,67 @@ function lotLive(key) {
   return { key, name, feed: f, status: f && !stale ? f.status : "unknown", rawStatus: f && f.status, age, stale,
     pos: g ? { lat: g.lat, lon: g.lon } : f ? { lat: f.lat, lon: f.lon } : null, capacity: g && g.capacity };
 }
+// How full is a lot, beyond the feed's three levels? Estimated from how long it
+// has been in its current state and when it usually changes (our own history).
+// Levels: 0 plenty of room, 1 filling soon, 2 few spaces, 3 almost full, 4 full.
+const LEVELS = [
+  { label: "Plenty of room", cls: "s-free" }, { label: "Room, filling soon", cls: "s-free" },
+  { label: "Few spaces", cls: "s-few" }, { label: "Almost full", cls: "s-almost" }, { label: "Full", cls: "s-full" },
+];
+function stateSince(key, status) {
+  // When did the lot enter its current status? {t, sure}: sure=false if the log starts mid-state.
+  const pts = S.rows[key].map(effective).filter((e) => e && e.s !== "unknown").sort((a, b) => a.t - b.t);
+  let since = null, i = pts.length - 1;
+  for (; i >= 0 && pts[i].s === status; i--) since = pts[i].t;
+  return since == null ? null : { t: since, sure: i >= 0 };
+}
+function freeUpTime(key) {
+  // Median time (min after the evening's noon) a full lot first stops being full.
+  const byEv = new Map();
+  for (const e of S.rows[key].map(effective)) {
+    if (!e || e.s === "unknown") continue;
+    const ev = hourOf(e.t) >= 12 ? dayStart(e.t) : dayStart(e.t) - DAY;
+    if (!byEv.has(ev)) byEv.set(ev, []); byEv.get(ev).push(e);
+  }
+  const times = [];
+  for (const [ev, pts] of byEv) {
+    pts.sort((a, b) => a.t - b.t);
+    let wasFull = false;
+    for (const q of pts) {
+      if (q.s === "מלא") wasFull = true;
+      else if (wasFull) { const m = minAfterNoon(q.t, ev); if (m >= 12 * 60) times.push(m); break; } // morning release only
+    }
+  }
+  return times.length >= 2 ? median(times) : null;
+}
+function lotDetail(key) {
+  const L = lotLive(key), s = L.status, now = ilNow();
+  if (!STATUS[s] || s === "סגור") return { level: null, label: st(s).en, cls: st(s).cls, note: "" };
+  const since = stateSince(key, s), p = lotPrediction(key), ev = tonightEvening(), m = minAfterNoon(now, ev);
+  const forTxt = since ? (since.sure ? " for " : " for at least ") + fmtDur(Math.max(1, Math.round((now - since.t) / MIN))) : "";
+  let level, note = "";
+  if (s === "מלא") {
+    level = 4; const fu = freeUpTime(key);
+    note = "Full" + forTxt + (fu != null ? ". Usually frees up around " + hhmm(fu) + "." : ".");
+  } else if (s === "מעט") {
+    level = 2;
+    if (p && p.fewMedian != null) {
+      const typical = Math.max(10, p.fullMedian - p.fewMedian);
+      const left = since && since.sure ? typical - Math.round((now - since.t) / MIN) : p.fullMedian - m;
+      if (left <= 15) level = 3;
+      note = (level === 3 ? "Almost full: few spaces" : "Few spaces") + forTxt + ". It usually fills about " + typical + " min after reaching this point.";
+    } else note = "Few spaces" + forTxt + ".";
+  } else {
+    level = 0;
+    if (p && p.fewMedian != null && eveningOf(now) != null) {
+      const toFew = p.fewMedian - m;
+      if (toFew <= 45 && toFew > -180) level = 1;
+      note = level === 1 ? "Room now; it usually drops to few spaces around " + hhmm(p.fewMedian) + "." : "Room" + forTxt + ".";
+    } else note = "Room" + forTxt + ".";
+    if (!p) return { level: 0, label: "Room", cls: "s-free", note, gaugeLevel: 0 };
+  }
+  return { level, label: LEVELS[level].label, cls: LEVELS[level].cls, note };
+}
 function tonightEvening() { const now = ilNow(); return eveningOf(now) ?? dayStart(now); }
 function lotPrediction(key) { const ev = tonightEvening(); return predict(evenings(S.rows[key]), dowOf(ev), ev); }
 
@@ -521,17 +594,19 @@ function renderDecision() {
     btns.append(w, g);
   };
   const openCurbs = (S.geo ? S.geo.curbs : []).filter((c) => c.who === "all" && curbOpen(c, now) && c.walk_m <= 400).length +
-                    S.spots.filter((s) => spotOpen(s, now)).length;
+                    S.spots.concat(S.shared).filter((s) => spotOpen(s, now)).length;
   let target = null;
   if (hasRoom(A.status)) {
     target = "assuta";
     verdict.textContent = "Go to Assuta";
-    why.textContent = A.status === "מעט" ? "Few spaces left, so go now. Basel: " + st(B.status).en.toLowerCase() + "." : "Assuta has room.";
+    const dA = lotDetail("assuta"), dB = lotDetail("basel");
+    why.textContent = A.status === "מעט" ? dA.label + ", so go now. Basel: " + dB.label.toLowerCase() + "." : dA.label + " at Assuta.";
     navBtns(A.pos, "Waze to Assuta");
   } else if (hasRoom(B.status)) {
     target = "basel";
     verdict.textContent = "Go to Basel";
-    why.textContent = (A.status === "מלא" ? "Assuta is full. " : "No live data for Assuta. ") + (B.status === "מעט" ? "Basel has few spaces, so go now." : "Basel has room.");
+    const dB = lotDetail("basel");
+    why.textContent = (A.status === "מלא" ? "Assuta is full. " : "No live data for Assuta. ") + "Basel: " + dB.label.toLowerCase() + (B.status === "מעט" ? ", so go now." : ".");
     navBtns(B.pos, "Waze to Basel");
   } else if (A.status === "unknown" && B.status === "unknown") {
     target = "assuta";
@@ -572,17 +647,23 @@ function renderDecision() {
 function renderLots() {
   const box = $("lots"); box.innerHTML = "";
   for (const meta of LOTS) {
-    const L = lotLive(meta.key), s = st(L.status), p = lotPrediction(meta.key);
+    const L = lotLive(meta.key), p = lotPrediction(meta.key), D = lotDetail(meta.key);
     const card = el("div", "lot" + (meta.key === "assuta" ? " first" : ""));
     const top = el("div", "top"); top.append(el("span", "name", meta.en), el("span", "rank", meta.rank));
-    const pill = el("span", "pill " + s.cls, s.en);
+    const pill = el("span", "pill " + D.cls, D.label);
     const metaBox = el("div", "meta");
     const line = (label, val) => { const d = el("div"); d.append(label + " "); d.append(el("b", null, val)); return d; };
     if (L.age != null) metaBox.append(el("div", null, "Updated " + ago(L.age)));
     metaBox.append(p ? line("Usually full", "~" + hhmm(p.fullMedian)) : el("div", null, "Fill time: learning"));
     if (L.capacity) metaBox.append(el("div", null, L.capacity + " spaces · free nights for residents"));
-    card.append(top, el("div", null), metaBox);
-    card.children[1].append(pill);
+    const pillRow = el("div"); pillRow.append(pill);
+    card.append(top, pillRow);
+    if (D.level != null) {
+      const g = el("div", "gauge l" + D.level); g.setAttribute("role", "img"); g.setAttribute("aria-label", D.label);
+      for (let i = 0; i < 5; i++) g.append(el("span")); card.append(g);
+    }
+    if (D.note) card.append(el("div", "level", D.note));
+    card.append(metaBox);
     if (L.stale && L.feed) card.append(el("div", "stale", "Status is " + ago(L.age).replace(" ago", "") + " old (" + st(L.rawStatus).en.toLowerCase() + "); the sensor may be stuck."));
     if (L.pos) {
       const links = el("div", "links");
@@ -634,8 +715,8 @@ function titleWithHe(en, he) {
 function renderCurbs() {
   const ul = $("curb-list"); ul.innerHTML = ""; if (!S.geo) return;
   const now = ilNow();
-  const curbs = S.geo.curbs.map((c) => ({ c, open: c.who === "all" && curbOpen(c, now) }))
-    .sort((x, y) => (x.c.who === "all" ? 0 : 1) - (y.c.who === "all" ? 0 : 1) || (y.open - x.open) || x.c.walk_m - y.c.walk_m);
+  const curbs = S.geo.curbs.map((c) => ({ c, open: curbOpen(c, now) }))
+    .sort((x, y) => (y.open - x.open) || (x.c.who === "all" ? 0 : 1) - (y.c.who === "all" ? 0 : 1) || x.c.walk_m - y.c.walk_m);
   const near = curbs.filter((x) => x.c.walk_m <= NEAR_CURB_M), far = curbs.filter((x) => x.c.walk_m > NEAR_CURB_M);
   if (!curbs.length) ul.append(el("li", "note", "No usable loading-zone signs on record near the lots."));
   else if (!near.length) ul.append(el("li", "note", "None within a 6-minute walk of Assuta."));
@@ -644,21 +725,18 @@ function renderCurbs() {
     const t = titleWithHe(curbStreet(c), c.street_en ? c.street : "");
     const m = el("span", "m", walkMin(c.walk_m) + " min walk from Assuta · " + c.route_m + " m from the loop");
     const r = el("span", "r");
-    let chip;
-    if (c.who !== "all") chip = el("span", "chip s-few", "Check the sign");
-    else {
-      const u = nextChange((t2) => curbOpen(c, t2), now);
-      chip = el("span", "chip " + (open ? "s-free" : "s-unknown"), open ? "Open until " + whenText(now, u) : "Opens " + whenText(now, u));
-    }
+    const u = nextChange((t2) => curbOpen(c, t2), now), sure = c.who === "all";
+    const chip = el("span", "chip " + (!open ? "s-unknown" : sure ? "s-free" : "s-few"),
+      !open ? "Loading hours until " + whenText(now, u) : (sure ? "Open until " : "Likely open until ") + whenText(now, u));
     const go = el("a", "go", "Navigate"); go.href = wazeUrl(c); go.target = "_blank"; go.rel = "noopener";
     r.append(go);
     const cr = el("span", "chips"); cr.append(chip);
-    const d = el("details"); d.append(el("summary", null, c.who === "all" ? "Loading hours: " + windowsText(c.windows) : "The sign doesn't say who may park outside the loading hours"));
+    const d = el("details"); d.append(el("summary", null, "Loading hours: " + windowsText(c.windows) + (sure ? "" : ". The sign doesn't say about other hours: park then only if the curb isn't red-white.")));
     const p = el("p", null, c.text); p.lang = "he"; d.append(p);
     li.append(t, r, cr, m, d); ul.append(li);
   }
   if (far.length) {
-    const li = el("li"); const b = el("button", "btn small more", showFarCurbs ? "Show only the close ones" : "Show " + far.length + " farther (7–10 min walk)"); b.type = "button";
+    const li = el("li"); const b = el("button", "btn small more", showFarCurbs ? "Show only the close ones" : "Show " + far.length + " farther (7–15 min walk)"); b.type = "button";
     b.addEventListener("click", () => { showFarCurbs = !showFarCurbs; renderCurbs(); });
     li.append(b); ul.append(li);
   }
@@ -669,22 +747,37 @@ function windowsText(ws) {
   const days = (d) => d.length === 1 ? dn[d[0]] : dn[d[0]] + "–" + dn[d[d.length - 1]];
   return ws.map((w) => days(w.days) + " " + w.from + "–" + w.to).join(", ");
 }
+const DAY_TXT = { all: "every day", "0-4": "Sun–Thu (all day Fri–Sat)", "0-5": "Sun–Fri (all day Sat)" };
+function spotText(sp) {
+  return (sp.name || "Curb spot") + " — parking allowed " + sp.from + "–" + sp.to + ", " + (DAY_TXT[sp.days] || "every day") +
+    ". Location: " + sp.lat.toFixed(5) + ", " + sp.lon.toFixed(5);
+}
 function renderMySpots() {
   const ul = $("my-list"); ul.innerHTML = ""; const now = ilNow();
-  $("my-empty").hidden = S.spots.length > 0;
-  S.spots.forEach((s, i) => {
-    const open = spotOpen(s, now), u = nextChange((t2) => spotOpen(s, t2), now);
+  $("my-empty").hidden = S.spots.length + S.shared.length > 0;
+  const row = (sp, shared, i) => {
+    const open = spotOpen(sp, now), u = nextChange((t2) => spotOpen(sp, t2), now);
     const li = el("li", "item");
-    const t = el("span", "t", s.name || "My spot");
-    const dayTxt = { all: "every day", "0-4": "Sun–Thu (all day Fri–Sat)", "0-5": "Sun–Fri (all day Sat)" }[s.days] || "";
-    const m = el("span", "m", "Allowed " + s.from + "–" + s.to + ", " + dayTxt);
+    const t = el("span", "t", sp.name || "Curb spot");
+    const m = el("span", "m", "Allowed " + sp.from + "–" + sp.to + ", " + (DAY_TXT[sp.days] || "every day") + (shared ? " · on every device" : " · on this phone") + (sp.note ? " · " + sp.note : ""));
     const r = el("span", "r");
     const cr = el("span", "chips"); cr.append(el("span", "chip " + (open ? "s-free" : "s-unknown"), open ? "Open until " + whenText(now, u) : "Opens " + whenText(now, u)));
-    const del = el("button", "btn small", "Remove"); del.type = "button";
-    del.addEventListener("click", () => { S.spots.splice(i, 1); saveSpots(); renderCurbs(); renderMap(); renderDecision(); });
-    r.append(del);
+    const go = el("a", "go", "Navigate"); go.href = wazeUrl(sp); go.target = "_blank"; go.rel = "noopener"; r.append(go);
+    if (!shared) {
+      const copy = el("button", "btn small", "Copy"); copy.type = "button"; copy.title = "Copy this spot to send it on";
+      copy.addEventListener("click", async () => {
+        try { await navigator.clipboard.writeText(spotText(sp)); copy.textContent = "Copied"; }
+        catch (e) { copy.textContent = "Copy failed"; }
+        setTimeout(() => (copy.textContent = "Copy"), 2000);
+      });
+      const del = el("button", "btn small", "Remove"); del.type = "button";
+      del.addEventListener("click", () => { S.spots.splice(i, 1); saveSpots(); renderCurbs(); renderMap(); renderDecision(); });
+      r.append(copy, del);
+    }
     li.append(t, r, cr, m); ul.append(li);
-  });
+  };
+  S.shared.forEach((sp) => row(sp, true));
+  S.spots.forEach((sp, i) => row(sp, false, i));
 }
 
 // ---------------------------------------------------------------- render: map
@@ -718,12 +811,12 @@ function renderMap() {
   if (S.geo.synagogue) L.marker([S.geo.synagogue.lat, S.geo.synagogue.lon], { interactive: tap, title: S.geo.synagogue.name, icon: L.divIcon({ className: "mk-syn", html: "✡", iconSize: [20, 20] }) })
     .bindPopup(S.geo.synagogue.name + " · " + S.geo.synagogue.address).addTo(S.layers);
   for (const c of S.geo.curbs) {
-    const color = c.who !== "all" ? cssVar("--few") : curbOpen(c, now) ? cssVar("--free") : cssVar("--closed");
+    const color = !curbOpen(c, now) ? cssVar("--closed") : c.who === "all" ? cssVar("--free") : cssVar("--few");
     const m = L.marker([c.lat, c.lon], { interactive: tap, title: curbStreet(c), icon: L.divIcon({ className: "mk-curb", html: "", iconSize: [14, 14] }) })
-      .bindPopup(curbStreet(c) + "<br>" + (c.who === "all" ? "Loading " + windowsText(c.windows) + "; open to all otherwise" : "Check the sign")).addTo(S.layers);
+      .bindPopup(curbStreet(c) + "<br>Loading " + windowsText(c.windows) + (c.who === "all" ? "; open to all otherwise" : "; check the curb colour")).addTo(S.layers);
     m.getElement().style.background = color;
   }
-  for (const s of S.spots) {
+  for (const s of S.spots.concat(S.shared)) {
     L.circleMarker([s.lat, s.lon], { interactive: tap, radius: 8, color: cssVar("--surface"), weight: 2, fillColor: cssVar("--basel"), fillOpacity: spotOpen(s, now) ? 1 : .45 })
       .bindPopup((s.name || "My spot") + "<br>Allowed " + s.from + "–" + s.to).addTo(S.layers);
   }
@@ -896,6 +989,7 @@ async function refresh() {
   $("refresh").disabled = true;
   const [geo, feed, ra, rb] = await Promise.allSettled([S.geo ? Promise.resolve(S.geo) : getJson("geo.json"), loadFeed(), loadLog("assuta"), loadLog("basel")]);
   if (geo.status === "fulfilled") S.geo = geo.value;
+  if (!S.sharedLoaded) { try { S.shared = await getJson("spots.json"); S.sharedLoaded = true; } catch (e) { S.shared = []; } }
   if (feed.status === "fulfilled") { S.feed = feed.value; S.feedError = null; } else S.feedError = feed.reason && feed.reason.message || "error";
   if (ra.status === "fulfilled") S.rows.assuta = ra.value;
   if (rb.status === "fulfilled") S.rows.basel = rb.value;
