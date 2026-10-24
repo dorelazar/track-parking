@@ -515,15 +515,17 @@ function lotLive(key) {
   const g = S.geo && S.geo.lots[key], name = LOTS.find((l) => l.key === key).name;
   const f = S.feed.find((x) => x.name === name) || null;
   const now = ilNow();
-  let age = f && f.updatedAt ? now - f.updatedAt : null;
-  let stale = age == null || age > STALE_MIN * MIN, status = f && !stale ? f.status : "unknown", fromLog = false;
-  if (status === "unknown") {
-    // The city feed didn't answer (or is stuck): use the checker's latest saved status if it's recent.
-    const rows = S.rows[key], last = rows.length ? effective(rows[rows.length - 1]) : null;
-    if (last && last.s !== "unknown" && now - parseT(rows[rows.length - 1].checked_at) <= 20 * MIN) {
-      status = last.s; age = now - last.t; stale = false; fromLog = true;
-    }
-  }
+  // Two sources: the city feed (read here, live) and the checker's latest save, which
+  // also reads ahuzot.co.il. The city feed sometimes freezes for hours, so use whichever is newer.
+  const feedT = f && f.updatedAt && STATUS[f.status] ? f.updatedAt : null;
+  const rows = S.rows[key], lastRow = rows.length ? rows[rows.length - 1] : null;
+  const last = lastRow ? effective(lastRow) : null;
+  const logT = last && last.s !== "unknown" && now - parseT(lastRow.checked_at) <= 40 * MIN ? last.t : null;
+  let status = "unknown", age = feedT != null ? now - feedT : null, fromLog = false;
+  if (logT != null && (feedT == null || logT > feedT)) { status = last.s; age = now - logT; fromLog = true; }
+  else if (feedT != null) status = f.status;
+  const stale = age == null || age > STALE_MIN * MIN;
+  if (stale) status = "unknown";
   return { key, name, feed: f, status, rawStatus: f && f.status, age, stale, fromLog,
     pos: g ? { lat: g.lat, lon: g.lon } : f ? { lat: f.lat, lon: f.lon } : null, capacity: g && g.capacity };
 }
@@ -667,7 +669,7 @@ function renderLots() {
     const pill = el("span", "pill " + D.cls, D.label);
     const metaBox = el("div", "meta");
     const line = (label, val) => { const d = el("div"); d.append(label + " "); d.append(el("b", null, val)); return d; };
-    if (L.age != null) metaBox.append(el("div", null, "Updated " + ago(L.age) + (L.fromLog ? " (saved check)" : "")));
+    if (L.age != null) metaBox.append(el("div", null, "Updated " + ago(L.age) + (L.fromLog ? " (via the checker)" : "")));
     metaBox.append(p ? line("Usually full", "~" + hhmm(p.fullMedian)) : el("div", null, "Fill time: learning"));
     if (L.capacity) metaBox.append(el("div", null, L.capacity + " spaces · free nights for residents"));
     const pillRow = el("div"); pillRow.append(pill);
@@ -678,7 +680,7 @@ function renderLots() {
     }
     if (D.note) card.append(el("div", "level", D.note));
     card.append(metaBox);
-    if (L.stale && L.feed) card.append(el("div", "stale", "Status is " + ago(L.age).replace(" ago", "") + " old (" + st(L.rawStatus).en.toLowerCase() + "); the sensor may be stuck."));
+    if (L.stale && L.age != null) card.append(el("div", "stale", "Last status is " + ago(L.age).replace(" ago", "") + " old, so it's hidden. Both sources may be stuck; check again soon."));
     if (L.pos) {
       const links = el("div", "links");
       const w = el("a", "btn small", "Waze"); w.href = wazeUrl(L.pos); w.target = "_blank"; w.rel = "noopener";

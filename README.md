@@ -16,7 +16,7 @@ Page: https://dorelazar.github.io/track-parking/ (add it to your phone's home sc
 
 ## How it runs
 
-- `.github/workflows/watch.yml` runs `poll.py` every 5 minutes from 14:00 to 02:00 and every 15 minutes otherwise. Each run lasts about 6 hours and starts the next one. The hourly schedule only restarts it if the chain ever stops.
+- `.github/workflows/watch.yml` runs `poll.py` every 5 minutes from 14:00 to 02:00 and every 10 minutes otherwise. Each run lasts about 6 hours and starts the next one. The hourly schedule only restarts it if the chain ever stops.
 - `poll.py` saves both lots' status to `assuta.csv` and `basel.csv` on the `data` branch. It reads the Tel Aviv GIS feed and falls back to ahuzot.co.il.
 - `geo.json` holds the route, curb signs and night lots. `.github/workflows/geo.yml` rebuilds it monthly from the city GIS and OpenStreetMap (`tools/fetch_geo.py`, `tools/build_geo.py`).
 

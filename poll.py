@@ -93,26 +93,48 @@ def read_gis():
 
 
 def read_ahuzot(code):
+    """Status image and its timestamp from the lot's ahuzot.co.il page."""
     html = fetch(AHUZOT_URL % code)
-    m = re.search(r'ParkingDetailsTable.*?<img[^>]+src="([^"]+)"', html, re.S | re.I)
-    stem = m.group(1).rsplit("/", 1)[-1].split(".")[0].lower() if m else ""
-    return {"status": AHUZOT_IMG.get(stem, UNKNOWN), "source_time": None, "source": "ahuzot"}
+    m = re.search(r'ParkingDetailsTable.*?IconText[^>]*>\s*(\d{1,2})/(\d{1,2})/(\d{4})\s+(\d{1,2}):(\d{2})\s*<.*?<img[^>]+src="([^"]+)"',
+                  html, re.S | re.I)
+    if m:
+        d, mo, y, h, mi, src = m.groups()
+        when = datetime(int(y), int(mo), int(d), int(h), int(mi))
+    else:
+        m2 = re.search(r'ParkingDetailsTable.*?<img[^>]+src="([^"]+)"', html, re.S | re.I)
+        src, when = (m2.group(1) if m2 else ""), None
+    stem = src.rsplit("/", 1)[-1].split(".")[0].lower()
+    return {"status": AHUZOT_IMG.get(stem, UNKNOWN), "source_time": when, "source": "ahuzot"}
 
 
 def read_all():
-    out, err = {}, ""
+    """Read both sources and keep the fresher status for each lot.
+
+    The city GIS feed sometimes freezes for hours while ahuzot.co.il keeps
+    updating (seen on 2026-10-24: GIS stuck at 06:42, the site live at 11:29).
+    """
+    gis, err = {}, ""
     try:
-        out = read_gis()
-    except Exception as e:  # noqa: BLE001 - fall back per lot
+        gis = read_gis()
+    except Exception as e:  # noqa: BLE001
         err = "gis: %s" % e
+    out = {}
     for lot in LOTS:
-        if lot["key"] in out:
-            continue
+        cands = []
+        g = gis.get(lot["key"])
+        if g and g["status"] != UNKNOWN:
+            cands.append(g)
         try:
-            out[lot["key"]] = read_ahuzot(lot["code"])
+            a = read_ahuzot(lot["code"])
+            if a["status"] != UNKNOWN:
+                cands.append(a)
         except Exception as e:  # noqa: BLE001
-            out[lot["key"]] = {"status": UNKNOWN, "source_time": None, "source": "error"}
             err += "; ahuzot %s: %s" % (lot["key"], e)
+        if not cands:
+            out[lot["key"]] = g or {"status": UNKNOWN, "source_time": None, "source": "error"}
+            continue
+        # Newest timestamp wins; a source without a timestamp counts as old.
+        out[lot["key"]] = max(cands, key=lambda c: c["source_time"] or datetime.min)
     return out, err
 
 

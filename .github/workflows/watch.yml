@@ -1,7 +1,7 @@
 name: Watch parking lots
 
 # One run checks Assuta and Basel every 5 minutes in the evening (14:00-02:00)
-# and every 15 minutes otherwise, for about 5h45m, then starts the next run.
+# and every 10 minutes otherwise, for about 5h45m, then starts the next run.
 # The hourly schedule only restarts the chain if it ever stops.
 
 on:
@@ -65,7 +65,7 @@ jobs:
               git push --quiet origin HEAD:data || { git pull --quiet --rebase origin data && git push --quiet origin HEAD:data; }
             ) || echo "save failed"
             h=$((10#$(TZ=Asia/Jerusalem date +%H)))
-            if [ "$h" -ge 14 ] || [ "$h" -lt 2 ]; then step=300; else step=900; fi
+            if [ "$h" -ge 14 ] || [ "$h" -lt 2 ]; then step=300; else step=600; fi
             now=$(date +%s)
             pause=$(( step - now % step + 20 ))
             [ $(( now + pause )) -lt "$end" ] || break
