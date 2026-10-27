@@ -145,10 +145,22 @@ FMT = "%Y-%m-%dT%H:%M"
 
 
 def load_rows(path):
+    """Rows in file order. Times are Israel wall-clock, so when clocks go back an hour
+    01:00-01:59 repeats; rows that jump back in time are dropped instead of interleaved."""
     if not os.path.exists(path):
         return []
     with open(path, newline="", encoding="utf-8") as f:
-        return list(csv.DictReader(f))
+        rows, latest = [], None
+        for r in csv.DictReader(f):
+            try:
+                t = datetime.strptime(r["checked_at"], FMT)
+            except (KeyError, ValueError):
+                continue
+            if latest is not None and t < latest - timedelta(minutes=20):
+                continue
+            latest = t if latest is None else max(latest, t)
+            rows.append(r)
+        return rows
 
 
 def append_row(path, row):

@@ -172,6 +172,35 @@ svg .b-lbl { fill: var(--basel); }
 .strip span { display: block; height: 100%; }
 .strip-axis { display: flex; justify-content: space-between; font: 11px var(--font-data); color: var(--muted); margin-left: 60px; }
 
+/* history */
+.hist-nav { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; gap: 8px; align-items: center; }
+.hist-nav select { font: 600 16px var(--font-body); padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); min-height: 44px; width: 100%; }
+.hist-nav .btn { padding: 0; }
+.hist-lot { display: grid; gap: 6px; }
+.hist-lot + .hist-lot { border-top: 1px solid var(--line); padding-top: 12px; }
+.hist-lot h3 { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.hist-strip { position: relative; display: flex; height: 22px; border-radius: 5px; overflow: hidden; background: var(--closed-bg); }
+.hist-strip span { display: block; height: 100%; }
+.hist-strip .now { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--ink); }
+.hist-axis { display: flex; justify-content: space-between; font: 11px var(--font-data); color: var(--muted); }
+.keys { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 14px; }
+.keys b { font-family: var(--font-data); font-weight: 500; }
+.changes { font-size: 13px; color: var(--muted); }
+.changes ol { list-style: none; margin: 6px 0 0; padding: 0; column-count: 2; column-gap: 16px; }
+.changes li { font-variant-numeric: tabular-nums; padding: 1px 0; break-inside: avoid; color: var(--ink); }
+.changes li.mid { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; padding-top: 6px; }
+.changes li b { font-family: var(--font-data); font-weight: 500; margin-right: 6px; }
+.keys small { color: var(--muted); font-size: 12px; margin-left: 4px; }
+.changes li i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: 0; }
+.hist-table { width: 100%; border-collapse: collapse; font-size: 15px; }
+.hist-table th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 600; padding: 0 6px 6px 0; }
+.hist-table td { padding: 0; border-top: 1px solid var(--line); }
+.hist-table td button { all: unset; box-sizing: border-box; display: block; width: 100%; padding: 8px 6px 8px 0; cursor: pointer; font-variant-numeric: tabular-nums; }
+.hist-table td:not(:first-child) button { font-family: var(--font-data); font-size: 14px; }
+.hist-table tr.sel td { background: var(--soft); }
+.hist-table td button:focus-visible { outline: 3px solid var(--sign); outline-offset: -3px; }
+.hist-table td button.dim { color: var(--muted); font-family: var(--font-body); font-size: 13px; }
+
 footer { font-size: 13px; color: var(--muted); display: grid; gap: 4px; padding-inline: 2px; }
 footer a { color: inherit; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
@@ -262,6 +291,19 @@ footer a { color: inherit; }
     <div id="strips"></div>
     <div class="strip-axis" id="strip-axis"></div>
     <div class="legend"><span><i style="background:var(--free)"></i>Room</span><span><i style="background:var(--few)"></i>Few spaces</span><span><i style="background:var(--full)"></i>Full</span><span><i style="background:var(--closed-bg);box-shadow:inset 0 0 0 1px var(--line)"></i>No data</span></div>
+  </section>
+
+  <section id="history">
+    <h2>History</h2>
+    <div class="hist-nav">
+      <button class="btn" id="hist-prev" type="button" aria-label="Earlier day">‹</button>
+      <select id="hist-day" aria-label="Day to show"></select>
+      <button class="btn" id="hist-next" type="button" aria-label="Later day">›</button>
+    </div>
+    <div id="hist-body"></div>
+    <h3 class="sub-h">Every evening at a glance</h3>
+    <p class="note">When each lot first filled. Tap a row to see that day.</p>
+    <div class="chart"><table class="hist-table" id="hist-table"></table></div>
   </section>
 
   <section>
@@ -361,7 +403,11 @@ const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", 
 // ---------------------------------------------------------------- analysis (mirror of poll.py)
 function parseCsv(text) {
   const lines = text.trim().split(/\r?\n/); const head = lines.shift().split(",");
-  return lines.filter(Boolean).map((l) => { const v = l.split(","); const o = {}; head.forEach((h, i) => (o[h] = v[i] || "")); return o; });
+  const rows = lines.filter(Boolean).map((l) => { const v = l.split(","); const o = {}; head.forEach((h, i) => (o[h] = v[i] || "")); return o; });
+  // Times are Israel wall-clock, so when clocks go back an hour, 01:00-01:59 repeats.
+  // Rows that jump back in time are that repeated hour: drop them rather than interleave them.
+  let latest = -Infinity;
+  return rows.filter((r) => { const t = parseT(r.checked_at); if (t == null) return false; if (t < latest - 20 * MIN) return false; latest = Math.max(latest, t); return true; });
 }
 function effective(row) {
   const checked = parseT(row.checked_at), src = parseT(row.source_time);
@@ -996,8 +1042,127 @@ function renderHealth() {
   if (S.feedError) box.append(el("div", "note", "The city feed didn't answer just now (" + S.feedError + "), so lot statuses come from the checker's last save."));
 }
 
+// ---------------------------------------------------------------- render: history
+// A "day" here runs noon to noon, so one evening and the night after it stay together.
+function historyDays() {
+  const days = new Set();
+  for (const meta of LOTS) for (const r of S.rows[meta.key]) {
+    const e = effective(r); if (!e || e.s === "unknown") continue;
+    days.add(hourOf(e.t) >= 12 ? dayStart(e.t) : dayStart(e.t) - DAY);
+  }
+  return [...days].sort((a, b) => b - a);
+}
+function pointsBetween(key, from, to) {
+  return S.rows[key].map(effective).filter((e) => e && e.t >= from - 30 * MIN && e.t <= to).sort((a, b) => a.t - b.t);
+}
+function segments(pts, from, to) {
+  // [start, end, status]; a point counts for up to 30 min, then the gap shows as no data.
+  const segs = []; let cursor = from;
+  pts.forEach((p, i) => {
+    const start = Math.max(p.t, from), next = i + 1 < pts.length ? pts[i + 1].t : to;
+    const end = Math.min(next, p.t + 30 * MIN, to);
+    if (start > cursor) segs.push([cursor, start, "unknown"]);
+    if (end > start) segs.push([start, end, p.s]);
+    cursor = Math.max(cursor, end);
+  });
+  if (cursor < to) segs.push([cursor, to, "unknown"]);
+  return segs;
+}
+function stateChanges(pts, from) {
+  const out = []; let prev = null;
+  for (const p of pts) {
+    if (p.s === "unknown" || p.t < from) { if (p.t < from && p.s !== "unknown") prev = p.s; continue; }
+    if (p.s !== prev) { out.push(p); prev = p.s; }
+  }
+  return out;
+}
+function dayLabel(d, short) {
+  const dt = new Date(d), today = dayStart(ilNow());
+  const name = d === today ? "Today" : d === today - DAY ? "Yesterday" : DAYS[dt.getUTCDay()].slice(0, short ? 3 : 9);
+  const date = dt.getUTCDate() + " " + ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][dt.getUTCMonth()];
+  return name + ", " + date;
+}
+const nextDayTime = (t, ev) => (dayStart(t) > ev ? "next day " : "") + hhmmAbs(t);
+function dayKeys(key, ev, evs) {
+  // Same rule as the predictions: first "few" and first "full" from 15:00, then room again after it filled.
+  const r = (evs || evenings(S.rows[key])).get(ev);
+  const at = (m) => (Number.isInteger(m) ? { t: ev + 12 * 60 * MIN + m * MIN } : null);
+  const few = r ? at(r.few) : null, full = r ? at(r.full) : null;
+  let room = null;
+  if (full) for (const p of pointsBetween(key, full.t, ev + 36 * 60 * MIN)) if (p.t > full.t && p.s === "פנוי") { room = p; break; }
+  return { few, full, room, n: r ? r.checks : 0 };
+}
+let histSel = null;
+function renderHistory() {
+  const days = historyDays(), sel = $("hist-day"), body = $("hist-body"), table = $("hist-table");
+  body.innerHTML = ""; table.innerHTML = ""; sel.innerHTML = "";
+  if (!days.length) { body.append(el("p", "note", "No history yet. Days appear here as the checker saves them.")); return; }
+  if (histSel == null || !days.includes(histSel)) histSel = days[0];
+  for (const d of days) { const o = el("option", null, dayLabel(d)); o.value = String(d); if (d === histSel) o.selected = true; sel.append(o); }
+  const i = days.indexOf(histSel);
+  $("hist-prev").disabled = i >= days.length - 1; $("hist-next").disabled = i <= 0;
+
+  const from = histSel + 12 * 60 * MIN, to = histSel + 36 * 60 * MIN, now = ilNow();
+  const evMaps = Object.fromEntries(LOTS.map((m) => [m.key, evenings(S.rows[m.key])]));
+  for (const meta of LOTS) {
+    const box = el("div", "hist-lot");
+    const k = dayKeys(meta.key, histSel, evMaps[meta.key]);
+    const ongoing = now < to;
+    const h = el("h3"); h.append(meta.en); h.append(el("span", "note", k.full ? "Filled at " + nextDayTime(k.full.t, histSel) : !k.n ? (ongoing ? "No data yet" : "No data") : ongoing ? "Not full yet" : "Didn't fill"));
+    box.append(h);
+    const pts = pointsBetween(meta.key, from, to);
+    const strip = el("div", "hist-strip"); strip.setAttribute("role", "img");
+    strip.setAttribute("aria-label", meta.en + " status from 12:00 " + dayLabel(histSel) + " to 12:00 the next day");
+    for (const [a, b, st_] of segments(pts, from, Math.min(to, Math.max(from, now)))) {
+      const sp = el("span"); sp.style.flex = String(b - a); sp.style.background = "var(" + st(st_).color + ")"; strip.append(sp);
+    }
+    if (now < to) { const rest = el("span"); rest.style.flex = String(to - Math.max(from, now)); rest.style.background = "transparent"; strip.append(rest);
+      if (now > from) { const mk = el("span", "now"); mk.style.left = ((now - from) / (to - from) * 100) + "%"; strip.append(mk); } }
+    box.append(strip);
+    const axis = el("div", "hist-axis"); ["12:00", "16:00", "20:00", "00:00", "04:00", "08:00", "12:00"].forEach((x) => axis.append(el("span", null, x))); box.append(axis);
+    const keys = el("div", "keys");
+    const kv = (label, p) => {
+      const sp = el("span"); sp.append(label + " "); sp.append(el("b", null, p ? hhmmAbs(p.t) : "–"));
+      if (p && dayStart(p.t) > histSel) sp.append(el("small", null, "next day"));
+      return sp;
+    };
+    keys.append(kv("Few spaces", k.few), kv("Full", k.full), kv("Room again", k.room));
+    box.append(keys);
+    const ch = stateChanges(pts, from);
+    if (ch.length) {
+      const d = el("details", "changes"); d.append(el("summary", null, "Every change (" + ch.length + ")"));
+      const ol = el("ol");
+      let crossed = false;
+      ch.forEach((p) => {
+        if (!crossed && dayStart(p.t) > histSel) { crossed = true; ol.append(el("li", "mid", "After midnight")); }
+        const li = el("li"); const dot = el("i"); dot.style.background = "var(" + st(p.s).color + ")";
+        li.append(dot, el("b", null, hhmmAbs(p.t)), st(p.s).en); ol.append(li);
+      });
+      d.append(ol); box.append(d);
+    }
+    body.append(box);
+  }
+
+  const head = el("tr"); ["Evening", "Assuta full", "Basel full"].forEach((x) => head.append(el("th", null, x))); table.append(head);
+  for (const d of days.slice(0, 21)) {
+    const tr = el("tr", d === histSel ? "sel" : "");
+    const cell = (content, dim) => { const td = el("td"); const b = el("button", dim ? "dim" : null, content); b.type = "button";
+      b.addEventListener("click", () => { histSel = d; renderHistory(); $("history").scrollIntoView({ block: "start" }); }); td.append(b); return td; };
+    tr.append(cell(dayLabel(d, true)));
+    for (const meta of LOTS) {
+      const k = dayKeys(meta.key, d, evMaps[meta.key]);
+      const ongoing = now < d + 36 * 60 * MIN;
+      tr.append(k.full ? cell(nextDayTime(k.full.t, d)) : cell(!k.n ? "no data" : ongoing ? "not yet" : "didn't fill", true));
+    }
+    table.append(tr);
+  }
+}
+$("hist-day").addEventListener("change", (e) => { histSel = +e.target.value; renderHistory(); });
+$("hist-prev").addEventListener("click", () => { const d = historyDays(), i = d.indexOf(histSel); if (i < d.length - 1) { histSel = d[i + 1]; renderHistory(); } });
+$("hist-next").addEventListener("click", () => { const d = historyDays(), i = d.indexOf(histSel); if (i > 0) { histSel = d[i - 1]; renderHistory(); } });
+
 function renderAll() {
-  renderDecision(); renderLots(); renderSteps(); renderCurbs(); renderMap(); renderTonight(); renderWeek(); renderStrips(); renderPlanB(); renderRent(); renderHealth();
+  renderDecision(); renderLots(); renderSteps(); renderCurbs(); renderMap(); renderTonight(); renderWeek(); renderStrips(); renderHistory(); renderPlanB(); renderRent(); renderHealth();
 }
 
 // ---------------------------------------------------------------- boot
